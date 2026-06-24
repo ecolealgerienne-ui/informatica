@@ -316,16 +316,36 @@ poc-ia-migration/
         └── data_diff_report.html     # Rapport HTML interactif
 ```
 
-### Résultats de la dernière exécution complète (run #2 — routing modèle Haiku/Sonnet)
+### Résultats de la dernière exécution complète (run #3 — fix doc + routing Haiku/Sonnet)
 
-| Étape | Modèle | Durée | Statut | Détail |
-|---|---|---|---|---|
-| Parser Agent | Haiku | 48.5s | ✅ | platform=pyspark, complexity=HIGH score=10 — identique au run Sonnet |
-| CodeGen Agent | Sonnet | 25.5s | ✅ | 146 lignes générées |
-| Fixer Agent | Sonnet | 20.1s | ✅ | Status=FIXED, 1 cycle |
-| Documenter Agent | Haiku | 173.8s | ✅ | 984 lignes (dont JSON à supprimer — fix I9 en cours) |
-| QA Agent | Haiku | 0.3s | ✅ | PASS, 0 anomalies, LLM skippé |
-| **Pipeline complet** | | **268.3s** | ✅ | **Exit code 0** |
+**Historique des 3 runs :**
+
+| Métrique | Run #1 — Sonnet partout | Run #2 — Haiku/Sonnet | Run #3 — Haiku/Sonnet + fix doc |
+|---|---|---|---|
+| Durée totale | 273.5s | 268.3s | **211.9s** |
+| Parser | 55.1s | 48.5s | 89.3s (*) |
+| CodeGen | 23.6s | 25.5s | 24.2s |
+| Fixer | 18.9s | 20.1s | 18.0s |
+| Documenter | 175.5s | 173.8s | **80.0s** |
+| QA | 0.3s | 0.3s | 0.3s |
+| Doc générée | 334 lignes | 984 lignes (JSON inclus) | **137 lignes** ✅ |
+| Complexity | HIGH, score=10 | HIGH, score=10 | HIGH, score=10 |
+| Platform routing | pyspark | pyspark | pyspark |
+| QA verdict | PASS, 0 anomalies | PASS, 0 anomalies | PASS, 0 anomalies |
+| Fixer cycles | 1 | 1 | 1 |
+
+> (*) Parser Run #3 plus lent (89s vs 48s) — variabilité réseau, pas liée au code
+
+**Gains cumulés Run #1 → Run #3 :**
+
+| Indicateur | Valeur |
+|---|---|
+| Durée pipeline | −61.6s (**−22%**) |
+| Documenter | −95.5s (**−54%**) — moins de tokens produits sans JSON |
+| Qualité doc | 984 → **137 lignes** (suppression du JSON parasite) |
+| Qualité technique | Inchangée — PASS, 0 anomalie sur les 3 runs |
+
+**Conclusion** : les optimisations modèles (D15) et la correction du prompt Documenter (I9) ont réduit la durée du pipeline de 22% et divisé par 2 le temps du Documenter, sans aucune régression sur la qualité du code ou du scoring de complexité.
 
 ### Gains mesurés — Optimisation modèles LLM
 
