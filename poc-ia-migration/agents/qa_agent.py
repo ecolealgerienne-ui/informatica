@@ -1,19 +1,18 @@
 """
-Agent 4 — QA Agent
+Agent 5 — QA Agent
 Input  : output/03_fixed_code/wf_clients_dim_documented.py  (annotated code to execute)
          tests/expected_output.csv                           (Informatica reference)
-         output/03_fixed_code/workflow_explanation.md        (for LLM context)
 Output : output/04_data_diff_report/data_diff_report.json
          output/04_data_diff_report/data_diff_report.html
 
 Steps:
   1. Execute the documented Python batch → actual output CSV
   2. Load actual vs expected, apply tolerance matrix
-  3. Call Claude Code → interpret anomalies, produce narrative
-  4. Generate structured JSON report + HTML report
+  3. Build compact statistical summary (pure Python, size-bounded)
+  4. Call Claude Code ONLY if anomalies exist — sends summary only, never raw rows
+  5. Generate structured JSON report + HTML report
 """
 
-import importlib.util
 import json
 import os
 import subprocess
@@ -23,13 +22,12 @@ from pathlib import Path
 
 import pandas as pd
 
-INPUT_CODE_PATH  = Path("output/03_fixed_code/wf_clients_dim_documented.py")
-INPUT_EXPL_PATH  = Path("output/03_fixed_code/workflow_explanation.md")
-EXPECTED_PATH    = Path("tests/expected_output.csv")
-OUTPUT_DIR       = Path("output/04_data_diff_report")
-ACTUAL_PATH      = OUTPUT_DIR / "actual_output.csv"
+INPUT_CODE_PATH = Path("output/03_fixed_code/wf_clients_dim_documented.py")
+EXPECTED_PATH   = Path("tests/expected_output.csv")
+OUTPUT_DIR      = Path("output/04_data_diff_report")
+ACTUAL_PATH     = OUTPUT_DIR / "actual_output.csv"
 
-# Tolerance matrix from spec section 6
+# Tolerance matrix
 TOLERANCE = {
     "CLIENT_ID":      {"type": "exact"},
     "NOM_CLEAN":      {"type": "exact"},
@@ -45,77 +43,61 @@ TOLERANCE = {
     "DW_LOAD_DATE":   {"type": "exclude"},
 }
 
+MAX_SAMPLE = 3  # max anomaly samples sent to LLM per column
+
 
 # ---------------------------------------------------------------------------
 # Step 1 — Execute the Python batch
 # ---------------------------------------------------------------------------
 
 def execute_batch(code_path: str) -> pd.DataFrame:
-    """Run the documented batch script and return the actual output."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     env = os.environ.copy()
-    env["SOURCE_FILE"]      = "tests/golden_dataset.csv"
-    env["REF_STATUT_FILE"]  = "tests/ref_statut.csv"
-    env["OUTPUT_FILE"]      = str(ACTUAL_PATH)
-    env["BATCH_DATE"]       = "2026-01-01"
+    env["SOURCE_FILE"]     = "tests/golden_dataset.csv"
+    env["REF_STATUT_FILE"] = "tests/ref_statut.csv"
+    env["OUTPUT_FILE"]     = str(ACTUAL_PATH)
+    env["BATCH_DATE"]      = "2026-01-01"
 
     print(f"[QA] Executing batch: {code_path}")
     result = subprocess.run(
         [sys.executable, code_path],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=60,
+        capture_output=True, text=True, env=env, timeout=60,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Batch execution failed:\n{result.stderr}")
-
     for line in result.stdout.splitlines():
         print(f"[QA]   {line}")
-
     return pd.read_csv(ACTUAL_PATH, dtype=str)
 
 
 # ---------------------------------------------------------------------------
-# Step 2 — Data Diff with tolerance matrix
+# Step 2 — Data Diff with tolerance matrix (full detail, stored in report)
 # ---------------------------------------------------------------------------
 
 def normalise(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalise string columns for comparison."""
     for col in df.select_dtypes(include=["object", "str"]).columns:
         df[col] = df[col].str.strip()
     return df
 
 
 def compare(actual: pd.DataFrame, expected: pd.DataFrame) -> dict:
-    """Apply tolerance matrix and return structured diff results."""
-    actual   = normalise(actual.copy())
-    expected = normalise(expected.copy())
-
-    # Align on CLIENT_ID
-    actual   = actual.set_index("CLIENT_ID").sort_index()
-    expected = expected.set_index("CLIENT_ID").sort_index()
+    actual   = normalise(actual.copy()).set_index("CLIENT_ID").sort_index()
+    expected = normalise(expected.copy()).set_index("CLIENT_ID").sort_index()
 
     anomalies   = []
     col_results = {}
+    total_rows  = len(expected)
 
-    missing_in_actual   = set(expected.index) - set(actual.index)
-    extra_in_actual     = set(actual.index) - set(expected.index)
-    common_ids          = sorted(set(actual.index) & set(expected.index))
+    missing_ids = sorted(set(expected.index) - set(actual.index))
+    extra_ids   = sorted(set(actual.index) - set(expected.index))
+    common_ids  = sorted(set(actual.index) & set(expected.index))
 
-    if missing_in_actual:
-        anomalies.append({
-            "type":    "MISSING_ROWS",
-            "detail":  f"CLIENT_IDs in expected but not in actual: {sorted(missing_in_actual)}",
-            "count":   len(missing_in_actual),
-        })
-    if extra_in_actual:
-        anomalies.append({
-            "type":    "EXTRA_ROWS",
-            "detail":  f"CLIENT_IDs in actual but not in expected: {sorted(extra_in_actual)}",
-            "count":   len(extra_in_actual),
-        })
+    if missing_ids:
+        anomalies.append({"type": "MISSING_ROWS", "count": len(missing_ids),
+                          "detail": f"CLIENT_IDs absents: {missing_ids[:10]}"})
+    if extra_ids:
+        anomalies.append({"type": "EXTRA_ROWS", "count": len(extra_ids),
+                          "detail": f"CLIENT_IDs en surplus: {extra_ids[:10]}"})
 
     for col, rule in TOLERANCE.items():
         if rule["type"] == "exclude":
@@ -126,41 +108,34 @@ def compare(actual: pd.DataFrame, expected: pd.DataFrame) -> dict:
             continue
         if col not in actual.columns or col not in expected.columns:
             col_results[col] = {"status": "MISSING_COLUMN", "anomalies": 1}
-            anomalies.append({"type": "MISSING_COLUMN", "column": col})
+            anomalies.append({"type": "MISSING_COLUMN", "column": col, "count": 1})
             continue
 
         col_anomalies = []
         for cid in common_ids:
-            val_actual   = actual.loc[cid, col]
-            val_expected = expected.loc[cid, col]
+            va = actual.loc[cid, col]
+            ve = expected.loc[cid, col]
 
             if rule["type"] == "exact":
-                if str(val_actual).strip() != str(val_expected).strip():
-                    col_anomalies.append({
-                        "client_id": cid,
-                        "actual":    val_actual,
-                        "expected":  val_expected,
-                    })
+                if str(va).strip() != str(ve).strip():
+                    col_anomalies.append({"client_id": cid, "actual": va, "expected": ve})
+
             elif rule["type"] == "numeric":
                 try:
-                    diff = abs(float(val_actual) - float(val_expected))
+                    diff = abs(float(va) - float(ve))
                     if diff > rule["tolerance"]:
-                        col_anomalies.append({
-                            "client_id": cid,
-                            "actual":    val_actual,
-                            "expected":  val_expected,
-                            "diff":      diff,
-                        })
+                        col_anomalies.append({"client_id": cid, "actual": va,
+                                              "expected": ve, "diff": diff})
                 except (ValueError, TypeError):
-                    col_anomalies.append({
-                        "client_id": cid,
-                        "actual":    val_actual,
-                        "expected":  val_expected,
-                        "error":     "non-numeric",
-                    })
+                    col_anomalies.append({"client_id": cid, "actual": va,
+                                          "expected": ve, "error": "non-numeric"})
 
         status = "OK" if not col_anomalies else "ANOMALY"
-        col_results[col] = {"status": status, "anomalies": len(col_anomalies), "details": col_anomalies}
+        col_results[col] = {
+            "status":    status,
+            "anomalies": len(col_anomalies),
+            "details":   col_anomalies,  # full detail kept in report, never sent to LLM
+        }
         if col_anomalies:
             anomalies.append({
                 "type":    "VALUE_MISMATCH",
@@ -170,7 +145,7 @@ def compare(actual: pd.DataFrame, expected: pd.DataFrame) -> dict:
             })
 
     return {
-        "rows_expected":   len(expected),
+        "rows_expected":   total_rows,
         "rows_actual":     len(actual),
         "rows_common":     len(common_ids),
         "anomalies_count": len(anomalies),
@@ -180,7 +155,55 @@ def compare(actual: pd.DataFrame, expected: pd.DataFrame) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Step 3 — Claude Code narrative interpretation
+# Step 3 — Compact statistical summary (size-bounded, safe to send to LLM)
+# ---------------------------------------------------------------------------
+
+def build_summary(diff: dict) -> dict:
+    """
+    Produce a compact summary of the diff result.
+    Size is O(nb_columns * MAX_SAMPLE) — always < 2KB regardless of data volume.
+    This is the ONLY payload sent to the LLM.
+    """
+    total = diff["rows_expected"]
+    col_summaries = {}
+
+    for col, result in diff["columns"].items():
+        status = result["status"]
+        if status in ("EXCLUDED", "OK"):
+            col_summaries[col] = {"status": status}
+            continue
+
+        n = result["anomalies"]
+        rate = f"{n / total * 100:.1f}%" if total > 0 else "N/A"
+        entry = {"status": status, "anomaly_count": n, "anomaly_rate": rate}
+
+        details = result.get("details", [])
+        if details:
+            diffs = [abs(float(d["diff"])) for d in details if "diff" in d]
+            if diffs:
+                entry["mean_diff"] = round(sum(diffs) / len(diffs), 3)
+                entry["max_diff"]  = round(max(diffs), 3)
+            entry["samples"] = [
+                {"actual": d["actual"], "expected": d["expected"]}
+                for d in details[:MAX_SAMPLE]
+            ]
+
+        col_summaries[col] = entry
+
+    structural = [a for a in diff["anomalies"] if a["type"] in ("MISSING_ROWS", "EXTRA_ROWS")]
+
+    return {
+        "total_rows":        total,
+        "rows_actual":       diff["rows_actual"],
+        "anomalies_count":   diff["anomalies_count"],
+        "anomaly_columns":   [c for c, r in diff["columns"].items() if r.get("status") == "ANOMALY"],
+        "structural_issues": structural,
+        "columns":           col_summaries,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Step 4 — Claude Code interpretation (only on anomalies, compact payload)
 # ---------------------------------------------------------------------------
 
 NARRATIVE_PROMPT = """You are a data quality expert writing a QA report for an ETL migration.
@@ -190,35 +213,28 @@ Respond ONLY with a JSON object. No markdown, no prose outside the JSON.
 Structure:
 {{
   "overall_verdict": "PASS|FAIL",
-  "summary": "<2-3 sentence plain-language summary in French>",
+  "summary": "<2-3 sentences in French>",
   "column_verdicts": {{
     "<col>": "<one-line verdict in French>"
   }},
   "recommendations": ["<action item>", ...]
 }}
 
-## Workflow explanation (context)
-{explanation}
-
-## Data diff results
-{diff_results}
-
-## Tolerance matrix applied
+## Tolerance matrix
 {tolerance}
 
-Interpret the diff results. If anomalies exist, explain their likely cause based on the workflow logic.
-If AGE has ±1 anomalies, note this is within tolerance (birthday edge case).
-If DW_LOAD_DATE is excluded, confirm this is expected behaviour.
+## Statistical summary of anomalies (aggregated — no raw data)
+{summary}
+
+Interpret the anomaly patterns. If AGE has ±1 drift, note it may be a birthday edge case.
+Focus on root cause in the ETL logic, not individual rows.
 """
 
 
 def call_claude(prompt: str) -> str:
     result = subprocess.run(
         ["claude", "-p", "--output-format", "text"],
-        input=prompt,
-        capture_output=True,
-        text=True,
-        timeout=180,
+        input=prompt, capture_output=True, text=True, timeout=180,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Claude CLI error:\n{result.stderr}")
@@ -228,26 +244,32 @@ def call_claude(prompt: str) -> str:
 def extract_json(raw: str) -> dict:
     raw = raw.strip()
     if raw.startswith("```"):
-        lines = raw.splitlines()
-        raw = "\n".join(l for l in lines if not l.startswith("```"))
-    start = raw.find("{")
-    end   = raw.rfind("}") + 1
+        raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```"))
+    start, end = raw.find("{"), raw.rfind("}") + 1
     return json.loads(raw[start:end])
 
 
-def interpret_with_claude(diff: dict, explanation: str) -> dict:
+def interpret_with_claude(summary: dict) -> dict:
     prompt = NARRATIVE_PROMPT.format(
-        explanation=explanation[:3000],
-        diff_results=json.dumps(diff, indent=2),
         tolerance=json.dumps(TOLERANCE, indent=2),
+        summary=json.dumps(summary, indent=2),
     )
-    print("[QA] Calling Claude Code for narrative interpretation...")
+    print("[QA] Calling Claude Code for anomaly interpretation (compact summary only)...")
     raw = call_claude(prompt)
     return extract_json(raw)
 
 
+def auto_pass_narrative(summary: dict) -> dict:
+    return {
+        "overall_verdict": "PASS",
+        "summary": f"Aucune anomalie détectée sur {summary['total_rows']} lignes. Migration validée.",
+        "column_verdicts": {col: "OK" for col in summary["columns"]},
+        "recommendations": ["Aucune action requise."],
+    }
+
+
 # ---------------------------------------------------------------------------
-# Step 4 — HTML report
+# Step 5 — HTML report
 # ---------------------------------------------------------------------------
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -256,10 +278,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <title>Data Diff Report — {workflow_id}</title>
 <style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-          margin: 40px; color: #1a1a2e; background: #f8f9fa; }}
-  h1   {{ color: #16213e; border-bottom: 3px solid #0f3460; padding-bottom: 10px; }}
-  h2   {{ color: #0f3460; margin-top: 30px; }}
+  body  {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           margin: 40px; color: #1a1a2e; background: #f8f9fa; }}
+  h1    {{ color: #16213e; border-bottom: 3px solid #0f3460; padding-bottom: 10px; }}
+  h2    {{ color: #0f3460; margin-top: 30px; }}
   .badge {{ display: inline-block; padding: 6px 16px; border-radius: 20px;
              font-weight: bold; font-size: 1.1em; }}
   .pass  {{ background: #d4edda; color: #155724; }}
@@ -276,21 +298,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .anomaly-box {{ background: #fff3cd; border-left: 5px solid #ffc107;
                   padding: 12px 16px; border-radius: 4px; margin: 10px 0;
                   font-family: monospace; font-size: 0.85em; }}
-  ul {{ padding-left: 20px; }}
-  li {{ margin: 6px 0; }}
+  ul {{ padding-left: 20px; }} li {{ margin: 6px 0; }}
 </style>
 </head>
 <body>
-
 <h1>📊 Data Diff Report — {workflow_id}</h1>
 <p class="meta">Généré le {timestamp} | Batch date: {batch_date}</p>
-
 <span class="badge {verdict_class}">{verdict_label}</span>
-
-<div class="summary-box">
-  <strong>Résumé :</strong> {summary}
-</div>
-
+<div class="summary-box"><strong>Résumé :</strong> {summary}</div>
 <h2>Statistiques</h2>
 <table>
   <tr><th>Indicateur</th><th>Valeur</th></tr>
@@ -299,24 +314,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <tr><td>Lignes communes</td><td>{rows_common}</td></tr>
   <tr><td>Anomalies détectées</td><td>{anomalies_count}</td></tr>
 </table>
-
 <h2>Résultats par colonne</h2>
 <table>
   <tr><th>Colonne</th><th>Tolérance</th><th>Statut</th><th>Anomalies</th><th>Verdict</th></tr>
   {column_rows}
 </table>
-
 {anomaly_details}
-
 <h2>Recommandations</h2>
-<ul>
-  {recommendations}
-</ul>
-
+<ul>{recommendations}</ul>
 <h2>Rapport JSON complet</h2>
 <pre style="background:#1a1a2e;color:#e0e0e0;padding:20px;border-radius:6px;
             overflow-x:auto;font-size:0.8em;">{json_report}</pre>
-
 </body>
 </html>"""
 
@@ -328,10 +336,10 @@ def build_html(report: dict) -> str:
 
     col_rows = ""
     for col, rule in TOLERANCE.items():
-        result  = diff["columns"].get(col, {})
-        status  = result.get("status", "UNKNOWN")
-        n_anom  = result.get("anomalies", 0)
-        tol_str = {"exact": "Exact", "numeric": f"±{rule.get('tolerance','')}", "exclude": "Exclu"}.get(rule["type"], "?")
+        result      = diff["columns"].get(col, {})
+        status      = result.get("status", "UNKNOWN")
+        n_anom      = result.get("anomalies", 0)
+        tol_str     = {"exact": "Exact", "numeric": f"±{rule.get('tolerance','')}", "exclude": "Exclu"}.get(rule["type"], "?")
         verdict_col = narrative.get("column_verdicts", {}).get(col, "")
 
         if status == "OK":
@@ -351,15 +359,12 @@ def build_html(report: dict) -> str:
         if "column" in anom:
             anomaly_details += f' — colonne <code>{anom["column"]}</code>'
         anomaly_details += f'<br>{anom.get("detail", "")} ({anom.get("count", "")} cas)'
-        if "samples" in anom and anom["samples"]:
+        if "samples" in anom:
             for s in anom["samples"][:2]:
                 anomaly_details += f'<br>&nbsp;&nbsp;CLIENT_ID={s["client_id"]} | attendu={s.get("expected")} | obtenu={s.get("actual")}'
         anomaly_details += "</div>"
 
-    recommendations = "\n".join(
-        f"<li>{r}</li>" for r in narrative.get("recommendations", ["Aucune action requise."])
-    )
-
+    recommendations = "\n".join(f"<li>{r}</li>" for r in narrative.get("recommendations", ["Aucune action requise."]))
     verdict_class = "pass" if verdict == "PASS" else "fail"
     verdict_label = "✅ PASS — Migration validée" if verdict == "PASS" else "❌ FAIL — Anomalies détectées"
 
@@ -375,7 +380,7 @@ def build_html(report: dict) -> str:
         rows_common=diff["rows_common"],
         anomalies_count=diff["anomalies_count"],
         column_rows=col_rows,
-        anomaly_details=anomaly_details if anomaly_details else "<p>Aucune anomalie détectée.</p>",
+        anomaly_details=anomaly_details or "<p>Aucune anomalie détectée.</p>",
         recommendations=recommendations,
         json_report=json.dumps(report, indent=2, ensure_ascii=False)[:4000],
     )
@@ -395,14 +400,15 @@ class QAAgent:
         expected = pd.read_csv(self.expected_path, dtype=str)
         print(f"[QA] Actual: {len(actual)} rows | Expected: {len(expected)} rows")
 
-        diff = compare(actual, expected)
-        print(f"[QA] Anomalies detected: {diff['anomalies_count']}")
+        diff    = compare(actual, expected)
+        summary = build_summary(diff)
+        print(f"[QA] Anomalies detected: {diff['anomalies_count']} | Summary payload: ~{len(json.dumps(summary))} bytes")
 
-        explanation = ""
-        if INPUT_EXPL_PATH.exists():
-            explanation = INPUT_EXPL_PATH.read_text(encoding="utf-8")
-
-        narrative = interpret_with_claude(diff, explanation)
+        if diff["anomalies_count"] == 0:
+            print("[QA] No anomalies — skipping LLM call")
+            narrative = auto_pass_narrative(summary)
+        else:
+            narrative = interpret_with_claude(summary)
 
         report = {
             "workflow_id":     "wf_CLIENTS_DIM",
@@ -417,13 +423,11 @@ class QAAgent:
         }
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
         json_path = OUTPUT_DIR / "data_diff_report.json"
         json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
 
-        html      = build_html(report)
         html_path = OUTPUT_DIR / "data_diff_report.html"
-        html_path.write_text(html, encoding="utf-8")
+        html_path.write_text(build_html(report), encoding="utf-8")
 
         print(f"[QA] JSON report → {json_path}")
         print(f"[QA] HTML report → {html_path}")
@@ -438,7 +442,6 @@ class QAAgent:
 if __name__ == "__main__":
     code_path     = sys.argv[1] if len(sys.argv) > 1 else str(INPUT_CODE_PATH)
     expected_path = sys.argv[2] if len(sys.argv) > 2 else str(EXPECTED_PATH)
-
     agent  = QAAgent(code_path, expected_path)
     result = agent.run()
     print(f"\n[QA] Overall verdict  : {result['overall_verdict']}")

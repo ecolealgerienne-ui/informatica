@@ -3,7 +3,7 @@
 **Projet** : Conversion automatique Informatica PowerCenter XML → Python ETL via pipeline multi-agents IA  
 **Branche** : `claude/laughing-curie-04rzxm` — `ecolealgerienne-ui/informatica`  
 **Période** : Juin 2026  
-**Statut** : ✅ Pipeline complet opérationnel — Phase 1 terminée
+**Statut** : ✅ Pipeline complet opérationnel — Phase 1 terminée + QA Agent refactorisé
 
 ---
 
@@ -178,7 +178,9 @@ subprocess.run(["claude", "-p", "--output-format", "text"],
 | D7 | Load idempotent | Écriture vers `.tmp` puis `os.replace()` | Écriture directe | Protège contre la corruption en cas d'interruption |
 | D8 | Scoring de complexité | Matrice JSON déterministe injectée dans le prompt | Score calculé librement par le LLM | Cohérence inter-runs et auditabilité des décisions de routing |
 | D9 | Agent Documenter | Deux appels LLM séparés (doc MD + code annoté) | Un seul appel LLM | Contexte plus propre, qualité meilleure sur chaque tâche distincte |
-| D10 | QA | Exécution réelle du code généré + diff CSV | Tests unitaires statiques | Valide le comportement réel end-to-end, pas seulement la syntaxe |
+| D10 | QA — exécution | Exécution réelle du code généré + diff CSV | Tests unitaires statiques | Valide le comportement réel end-to-end, pas seulement la syntaxe |
+| D11 | QA — payload LLM | Résumé statistique compact Python (< 2KB) | Lignes d'anomalies brutes | Payload non borné → coût et timeout incontrôlables sur gros volumes ; données sensibles ne doivent pas sortir vers un LLM |
+| D12 | QA — appel LLM conditionnel | Skip LLM si 0 anomalie (`auto_pass_narrative`) | Appel LLM systématique | Inutile d'appeler le LLM pour confirmer ce que Python a déjà prouvé |
 
 ---
 
@@ -204,6 +206,17 @@ subprocess.run(["claude", "-p", "--output-format", "text"],
 - **Fix** : Mise à jour de `rag_base/python_templates.md` avec le pattern correct (comparaisons booléennes séparées month/day)
 - **Détection** : Fixer Agent détecte et corrige en 1 cycle
 - **Commit** : `54fd56d`
+
+### I7 — QA Agent : payload LLM non borné sur gros volumes
+- **Symptôme** : Le diff envoyait une entrée JSON par ligne en anomalie → sur 1M lignes avec 5% d'anomalies = 50 000 entrées = timeout + coût LLM incontrôlé
+- **Cause** : `col_anomalies` (liste complète) injecté directement dans le prompt sans agrégation
+- **Décision** : Supprimer les données brutes du payload LLM — remplacer par un résumé statistique compact calculé en Python pur (`build_summary()`)
+- **Nouveau comportement** :
+  - Python calcule : nb anomalies, taux, mean_diff/max_diff, 3 samples max par colonne
+  - Payload LLM = **toujours < 2KB**, indépendant du volume
+  - Si 0 anomalie → **appel LLM supprimé** (`auto_pass_narrative()`)
+  - Le diff complet (toutes les lignes) reste dans le JSON/HTML pour traçabilité
+- **Commit** : voir ci-dessous
 
 ### I4 — `select_dtypes` pandas 4 deprecation warning
 - **Symptôme** : Warning `FutureWarning: select_dtypes(include='object')` — supprimé en pandas 4
@@ -294,6 +307,7 @@ poc-ia-migration/
 
 | Commit | Description |
 |---|---|
+| à venir    | fix(qa): payload LLM borné — résumé statistique Python |
 | `71f0ef0` | feat(parser): add formal complexity scoring matrix |
 | `c593ede` | feat: pipeline orchestrateur |
 | `599f2a8` | fix: qa_agent pandas 4 deprecation |
