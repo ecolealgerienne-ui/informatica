@@ -3,7 +3,7 @@
 **Projet** : Conversion automatique Informatica PowerCenter XML → Python ETL via pipeline multi-agents IA  
 **Branche** : `claude/laughing-curie-04rzxm` — `ecolealgerienne-ui/informatica`  
 **Période** : Juin 2026  
-**Statut** : ✅ Pipeline complet opérationnel — Phase 1 terminée + optimisations post-POC + batterie de tests étendue + etl_utils.py
+**Statut** : ✅ Pipeline complet opérationnel — Phase 1 terminée + optimisations post-POC + batterie de tests étendue + etl_utils.py + pipeline paramétrique
 
 ---
 
@@ -520,6 +520,33 @@ Les items suivants sont reportés en Phase 3, après validation du POC par le ma
 | CI/CD | Intégration GitHub Actions | Décision infra |
 | RAG dynamique | Few-shot examples depuis escalate_history.json | Après 20+ mappings réels en production |
 | Réconciliation distribuée | Validation QA à grande échelle (Spark-based) | Phase 3 — autre équipe |
+
+### Étape 11 — Pipeline paramétrique (nom de workflow dynamique)
+
+**Problème** : le pipeline était hardcodé sur `wf_clients_dim` — impossible de traiter d'autres XMLs sans modifier le code.
+
+**Solution** : propagation du `workflow_name = Path(xml_path).stem` à tous les agents.
+
+| Fichier | Changement |
+|---|---|
+| `pipeline/run_pipeline.py` | `sys.argv[1]` comme XML path, `workflow_name` dérivé du stem, log du workflow au démarrage |
+| `agents/parser_agent.py` | `self.workflow_name = Path(xml_path).stem`, sortie `{workflow_name}.json`, retourne tuple `(canonical, path)` |
+| `agents/codegen_agent.py` | `__init__` accepte `workflow_name`, sortie `{workflow_name}.py`, retourne tuple `(code, path)` |
+| `agents/fixer_agent.py` | `__init__` accepte `workflow_name`, sortie `{workflow_name}_fixed.py` |
+| `agents/documenter_agent.py` | `__init__` accepte `workflow_name`, sortie `{workflow_name}_documented.py` |
+
+**Usage** :
+```bash
+# Avant (hardcodé)
+python pipeline/run_pipeline.py
+
+# Après (paramétrique)
+python pipeline/run_pipeline.py input/wf_clients_dim.xml
+python pipeline/run_pipeline.py input/wf_accounts_scd2.xml
+python pipeline/run_pipeline.py input/wf_transactions_hist.xml
+```
+
+---
 
 ### Prochaine action immédiate
 

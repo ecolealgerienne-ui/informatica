@@ -43,10 +43,14 @@ def elapsed(start: float) -> str:
 
 
 def run():
+    xml_path      = sys.argv[1] if len(sys.argv) > 1 else "input/wf_clients_dim.xml"
+    workflow_name = Path(xml_path).stem
+
     pipeline_start = time.time()
     log.info("=" * 72)
     log.info("  POC IA Migration — Pipeline démarré")
     log.info(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    log.info(f"  Workflow : {workflow_name}  ({xml_path})")
     log.info("=" * 72)
 
     # -----------------------------------------------------------------------
@@ -55,8 +59,8 @@ def run():
     section("STEP 1/5 — Parser Agent (XML → Canonical JSON)")
     t = time.time()
     try:
-        parser     = ParserAgent("input/wf_clients_dim.xml")
-        canonical  = parser.run()
+        parser              = ParserAgent(xml_path)
+        canonical, json_path = parser.run()
     except Exception as e:
         log.error(f"Parser Agent failed: {e}")
         sys.exit(1)
@@ -78,8 +82,8 @@ def run():
     section("STEP 2/5 — CodeGen Agent (JSON → Python draft)")
     t = time.time()
     try:
-        codegen    = CodeGenAgent(canonical)
-        code_draft = codegen.run()
+        codegen              = CodeGenAgent(canonical, workflow_name=workflow_name)
+        code_draft, code_path = codegen.run()
     except Exception as e:
         log.error(f"CodeGen Agent failed: {e}")
         sys.exit(1)
@@ -92,7 +96,7 @@ def run():
     section("STEP 3/5 — Fixer Agent (static checks + semantic correction)")
     t = time.time()
     try:
-        fixer      = FixerAgent(code_draft, canonical)
+        fixer      = FixerAgent(code_draft, canonical, workflow_name=workflow_name)
         fix_result = fixer.run()
     except Exception as e:
         log.error(f"Fixer Agent failed: {e}")
@@ -115,7 +119,7 @@ def run():
     section("STEP 4/5 — Documenter Agent (explanation + annotated code)")
     t = time.time()
     try:
-        documenter  = DocumenterAgent(fixed_code, canonical)
+        documenter  = DocumenterAgent(fixed_code, canonical, workflow_name=workflow_name)
         doc_result  = documenter.run()
     except Exception as e:
         log.error(f"Documenter Agent failed: {e}")
@@ -159,11 +163,11 @@ def run():
     log.info(f"  Fixer cycles       : {fix_result['cycles_used']}")
     log.info("")
     log.info("  Outputs produits :")
-    log.info(f"    📄 output/01_canonical_json/wf_clients_dim.json")
-    log.info(f"    🐍 output/02_generated_code/wf_clients_dim.py")
-    log.info(f"    🔧 output/03_fixed_code/wf_clients_dim_fixed.py")
+    log.info(f"    📄 output/01_canonical_json/{workflow_name}.json")
+    log.info(f"    🐍 output/02_generated_code/{workflow_name}.py")
+    log.info(f"    🔧 output/03_fixed_code/{workflow_name}_fixed.py")
     log.info(f"    📝 output/03_fixed_code/workflow_explanation.md")
-    log.info(f"    💬 output/03_fixed_code/wf_clients_dim_documented.py")
+    log.info(f"    💬 output/03_fixed_code/{workflow_name}_documented.py")
     log.info(f"    📊 output/04_data_diff_report/data_diff_report.html")
     log.info("=" * 72)
 

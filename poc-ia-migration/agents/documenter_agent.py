@@ -163,9 +163,10 @@ def extract_code(raw: str) -> str:
 # ---------------------------------------------------------------------------
 
 class DocumenterAgent:
-    def __init__(self, code: str, canonical: dict):
-        self.code      = code
-        self.canonical = canonical
+    def __init__(self, code: str, canonical: dict, workflow_name: str = "wf_workflow"):
+        self.code          = code
+        self.canonical     = canonical
+        self.workflow_name = workflow_name
 
     def generate_explanation(self) -> str:
         prompt = EXPLANATION_PROMPT.format(
@@ -194,7 +195,7 @@ class DocumenterAgent:
         expl_path.write_text(explanation, encoding="utf-8")
         print(f"[Documenter] Explanation → {expl_path} ({len(explanation.splitlines())} lines)")
 
-        code_path = OUTPUT_DIR / "wf_clients_dim_documented.py"
+        code_path = OUTPUT_DIR / f"{self.workflow_name}_documented.py"
         code_path.write_text(annotated, encoding="utf-8")
         print(f"[Documenter] Annotated code → {code_path} ({len(annotated.splitlines())} lines)")
 

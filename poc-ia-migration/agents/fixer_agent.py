@@ -203,9 +203,10 @@ def semantic_fix(code: str, static_report: dict, canonical: dict) -> str:
 # ---------------------------------------------------------------------------
 
 class FixerAgent:
-    def __init__(self, code: str, canonical: dict):
-        self.code      = code
-        self.canonical = canonical
+    def __init__(self, code: str, canonical: dict, workflow_name: str = "wf_workflow"):
+        self.code          = code
+        self.canonical     = canonical
+        self.workflow_name = workflow_name
 
     def run(self) -> dict:
         corrections  = []
@@ -246,7 +247,7 @@ class FixerAgent:
         status = "FIXED" if not final_static["has_issues"] else "ESCALATE"
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        output_path = OUTPUT_DIR / "wf_clients_dim_fixed.py"
+        output_path = OUTPUT_DIR / f"{self.workflow_name}_fixed.py"
         output_path.write_text(current_code, encoding="utf-8")
 
         report = {
