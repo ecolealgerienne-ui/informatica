@@ -91,14 +91,16 @@ df["EMAIL_LOWER"] = df["EMAIL"].str.strip().str.lower()
 def _calc_age(birth_series: pd.Series, ref_date: datetime) -> pd.Series:
     age = ref_date.year - birth_series.dt.year
     birthday_passed = (
-        (ref_date.month, ref_date.day)
-        >= pd.Series(list(zip(birth_series.dt.month, birth_series.dt.day)), index=birth_series.index)
+        (birth_series.dt.month < ref_date.month) |
+        ((birth_series.dt.month == ref_date.month) &
+         (birth_series.dt.day <= ref_date.day))
     )
     return (age - (~birthday_passed).astype(int)).astype("Int64")
 ```
 
 **Rules:**
 - Fully vectorised — no `.apply()`
+- Explicit month/day comparisons — do NOT use tuple comparison with pd.Series (fragile with NaT)
 - Returns nullable integer (`Int64`) to handle NaT birth dates gracefully
 
 ---
