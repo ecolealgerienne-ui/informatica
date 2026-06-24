@@ -145,3 +145,47 @@ La gouvernance des métadonnées (lineage, catalogues, data contracts) est un ch
 - `sqlglot` comme pré-processeur SQL avant le LLM — pas dans notre radar initial, forte valeur
 - La notion de "Semantic Context Layer" (patterns de transformation groupés, pas seulement fonction par fonction) — à garder en tête pour faire évoluer le `transformation_map.json`
 - La référence aux initiatives Databricks Agent Bricks, LTIMindtree et TCS confirme qu'on est dans la bonne direction au niveau marché
+
+---
+
+## 6. GitHub Copilot Enterprise — Impact sur le POC
+
+### Contexte
+L'entreprise dispose de GitHub Copilot Enterprise (accès SSO pour tous les ingénieurs). La question est : est-ce que ça remplace ou complète notre pipeline ?
+
+### Comparaison directe
+
+| Dimension | Claude Code CLI (notre pipeline) | GitHub Copilot Enterprise |
+|---|---|---|
+| **Mode d'utilisation** | Batch automatisé — subprocess | Interactif — suggestions inline VSCode |
+| **Contexte codebase** | Prompt construit manuellement | Indexe automatiquement tout le repo |
+| **Authentification** | OAuth individuel (`claude login`) | SSO entreprise — disponible pour tous |
+| **Gouvernance données** | Données restent en local (subprocess) | Politique Microsoft/GitHub entreprise |
+| **Modèle disponible** | Claude (Anthropic) | GPT-4o + Claude Sonnet (au choix) |
+| **Coût** | Inclus dans Claude Code | Inclus dans la licence Copilot Enterprise |
+
+### Ce qui ne change pas dans notre POC
+Notre pipeline appelle `claude -p` via subprocess — il reste sur Claude Code CLI. Les agents sont autonomes et non interactifs : Copilot Enterprise n'a pas d'équivalent fonctionnel au Fixer Agent (boucle de correction statique + sémantique) ni au QA Agent (exécution réelle + data diff).
+
+### Ce que Copilot Enterprise apporte en complément
+
+**1. Pour les cas ESCALATE (immédiat)**
+Quand le Fixer Agent ne peut pas corriger et escalate vers un ingénieur, celui-ci ouvre le fichier dans VSCode avec Copilot Enterprise actif. Il bénéficie de suggestions inline contextualisées sur le repo entier pour corriger le cas manuellement. Complémentaire, pas concurrent.
+
+**2. Pour le RAG dynamique (Phase 3)**
+Copilot Enterprise indexe l'ensemble du repo — les mappings Informatica XML, le code Python généré, les corrections historiques. Cela renforce la base de connaissance sans infrastructure supplémentaire.
+
+**3. Pour le CI/CD (Phase 3)**
+GitHub Actions + Copilot Autofix peut détecter et suggérer des corrections sur le code généré avant merge — une couche de validation supplémentaire sur les PR.
+
+### Réponse à la question "pourquoi Claude Code si on a Copilot ?"
+
+Les deux outils répondent à des besoins différents :
+
+- **Copilot Enterprise** = assistant pour les ingénieurs qui codent
+- **Notre pipeline** = remplacement de la migration manuelle — batch automatisé qui lit un XML et produit du Python sans intervention humaine
+
+Copilot n'automatise pas la migration d'un workflow Informatica complet. Notre pipeline le fait. Les deux coexistent naturellement : le pipeline produit le code, Copilot aide l'ingénieur à le revoir et corriger les cas complexes.
+
+### Recommandation
+Mentionner explicitement Copilot Enterprise dans la présentation chef comme **accélérateur complémentaire** — ça renforce la crédibilité de l'approche et évite la question "pourquoi un nouvel outil si on a déjà Copilot ?".
