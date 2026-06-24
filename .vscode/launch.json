@@ -38,6 +38,15 @@
       "console": "integratedTerminal"
     },
     {
+      "name": "Documenter Agent",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/poc-ia-migration/agents/documenter_agent.py",
+      "cwd": "${workspaceFolder}/poc-ia-migration",
+      "envFile": "${workspaceFolder}/poc-ia-migration/.env",
+      "console": "integratedTerminal"
+    },
+    {
       "name": "QA Agent",
       "type": "debugpy",
       "request": "launch",
