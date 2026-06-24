@@ -1,0 +1,66 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Pipeline",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/poc-ia-migration/pipeline/run_pipeline.py",
+      "cwd": "${workspaceFolder}/poc-ia-migration",
+      "envFile": "${workspaceFolder}/poc-ia-migration/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Parser Agent",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/poc-ia-migration/agents/parser_agent.py",
+      "cwd": "${workspaceFolder}/poc-ia-migration",
+      "envFile": "${workspaceFolder}/poc-ia-migration/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "CodeGen Agent",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/poc-ia-migration/agents/codegen_agent.py",
+      "cwd": "${workspaceFolder}/poc-ia-migration",
+      "envFile": "${workspaceFolder}/poc-ia-migration/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Fixer Agent",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/poc-ia-migration/agents/fixer_agent.py",
+      "cwd": "${workspaceFolder}/poc-ia-migration",
+      "envFile": "${workspaceFolder}/poc-ia-migration/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "QA Agent",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/poc-ia-migration/agents/qa_agent.py",
+      "cwd": "${workspaceFolder}/poc-ia-migration",
+      "envFile": "${workspaceFolder}/poc-ia-migration/.env",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Setup: Generate XML",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/poc-ia-migration/setup/generate_sample_xml.py",
+      "cwd": "${workspaceFolder}/poc-ia-migration",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Setup: Generate Dataset",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/poc-ia-migration/setup/generate_golden_dataset.py",
+      "cwd": "${workspaceFolder}/poc-ia-migration",
+      "console": "integratedTerminal"
+    }
+  ]
+}
