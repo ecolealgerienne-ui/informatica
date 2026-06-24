@@ -86,31 +86,52 @@ def _fields_from_canonical(canonical: dict) -> tuple[list[str], dict[str, list[s
     """
     Extract field names from canonical JSON (real structure from parser_agent).
     Returns:
-      - source_cols : OUTPUT ports of the first Source Qualifier
-      - lkp_cols    : {table_name_upper: [port names]} for Lookup Procedures
+      - source_cols : fields of the first SOURCE table (structural, not SQ ports)
+      - lkp_cols    : {table_name_upper: [field names]} for lookup/dimension tables
+                      Uses TARGET table fields (actual DB columns) not transformation ports
     """
     source_cols: list[str] = []
     lkp_cols: dict[str, list[str]] = {}
 
+    # SOURCE table fields → use for SOURCE_FILE fixture
+    for src in canonical.get("sources", []):
+        cols = [f["name"] for f in src.get("fields", []) if f.get("name")]
+        if cols:
+            source_cols = cols
+            break
+
+    # TARGET table fields → use for DIM_*/LKP_* fixtures (real table columns)
+    for tgt in canonical.get("targets", []):
+        name = tgt.get("name", "").upper()
+        cols = [f["name"] for f in tgt.get("fields", []) if f.get("name")]
+        if name and cols:
+            lkp_cols[name] = cols
+
+    # Also index lookup ref_table names from transformation metadata
     for t in canonical.get("transformations", []):
-        t_type = t.get("type", "")
-        ports  = [p["name"] for p in t.get("ports", []) if p.get("name")]
+        if t.get("type") == "Lookup Procedure":
+            ref = t.get("ref_table", "").upper()
+            # Only add if not already covered by a TARGET table
+            if ref and ref not in lkp_cols:
+                # Use output ports (exclude INPUT ports) as best approximation
+                output_ports = [
+                    p["name"] for p in t.get("ports", [])
+                    if p.get("name") and p.get("port_type", "").upper() != "INPUT"
+                ]
+                if output_ports:
+                    lkp_cols[ref] = output_ports
+            # Index by transformation name too
+            t_name = t.get("name", "").upper()
+            if t_name and t_name not in lkp_cols and ref in lkp_cols:
+                lkp_cols[t_name] = lkp_cols[ref]
 
-        if t_type == "Source Qualifier" and not source_cols:
-            source_cols = ports
-
-        elif t_type == "Lookup Procedure":
-            ref = t.get("ref_table", t.get("name", "")).upper()
-            lkp_cols[ref] = ports
-            # Also index by transformation name
-            lkp_cols[t.get("name", "").upper()] = ports
-
-    # Also include SOURCE table fields (structural, not just SQ ports)
+    # Fallback: SQ output ports if no SOURCE table fields found
     if not source_cols:
-        for src in canonical.get("sources", []):
-            source_cols = [f["name"] for f in src.get("fields", []) if f.get("name")]
-            if source_cols:
-                break
+        for t in canonical.get("transformations", []):
+            if t.get("type") == "Source Qualifier":
+                source_cols = [p["name"] for p in t.get("ports", []) if p.get("name")]
+                if source_cols:
+                    break
 
     return source_cols, lkp_cols
 
