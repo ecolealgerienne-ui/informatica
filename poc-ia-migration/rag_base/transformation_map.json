@@ -5,52 +5,151 @@
     "LTRIM_RTRIM": "str.strip()",
     "UPPER": "str.upper()",
     "LOWER": "str.lower()",
+    "INITCAP": "str.title()",
     "LENGTH": "str.len()",
     "SUBSTR": "str[start:end]",
     "INSTR": "str.find()",
-    "CONCAT": "str + str  or  pd.Series.str.cat()"
+    "CONCAT": "str + str  or  pd.Series.str.cat()",
+    "LPAD(col, n, char)": "col.str.zfill(n)  or  col.str.pad(n, fillchar=char)",
+    "RPAD(col, n, char)": "col.str.ljust(n, fillchar=char)"
   },
   "date_functions": {
     "SYSDATE": "datetime.now()",
     "SYSTIMESTAMP": "datetime.now()",
     "TO_DATE(str, fmt)": "pd.to_datetime(str, format=fmt)",
     "TO_CHAR(date, fmt)": "date.dt.strftime(fmt)",
-    "DATEDIFF(SYSDATE, col, 'YY')": "(datetime.now().year - col.dt.year) - ((datetime.now().month, datetime.now().day) < (col.dt.month, col.dt.day)).astype(int)",
+    "DATEDIFF(SYSDATE, col, 'YY')": "_calc_age(col, ref_date)  -- use explicit boolean month/day pattern, NOT tuple comparison",
+    "DATEDIFF(date1, date2, 'DD')": "(date1 - date2).dt.days",
     "ADD_TO_DATE(date, 'MM', n)": "date + pd.DateOffset(months=n)",
-    "TRUNC(date)": "date.dt.normalize()"
+    "ADD_TO_DATE(date, 'DD', n)": "date + pd.Timedelta(days=n)",
+    "TRUNC(date)": "date.dt.normalize()",
+    "TRUNC(date, 'MM')": "date.dt.to_period('M').dt.to_timestamp()",
+    "TRUNC(date, 'YYYY')": "date.dt.to_period('Y').dt.to_timestamp()",
+    "TO_INTEGER(TO_CHAR(date, 'YYYY'))": "date.dt.year",
+    "TO_INTEGER(TO_CHAR(date, 'MM'))": "date.dt.month",
+    "TO_INTEGER(TO_CHAR(date, 'WW'))": "date.dt.isocalendar().week.astype(int)"
   },
   "null_functions": {
     "ISNULL(col)": "col.isna()",
     "NVL(col, default)": "col.fillna(default)",
-    "NVL2(col, not_null_val, null_val)": "col.where(col.isna(), not_null_val).fillna(null_val)"
+    "NVL2(col, not_null_val, null_val)": "np.where(col.notna(), not_null_val, null_val)"
   },
   "conditional_functions": {
     "IIF(cond, true_val, false_val)": "np.where(cond, true_val, false_val)",
-    "DECODE(col, val1, res1, val2, res2, default)": "col.map({val1: res1, val2: res2}).fillna(default)"
+    "IIF nested": "np.select([cond1, cond2, ...], [val1, val2, ...], default=default_val)",
+    "DECODE(col, val1, res1, val2, res2, default)": "col.map({val1: res1, val2: res2}).fillna(default)",
+    "DECODE multi-value": "_decode_map(series, mapping_dict, default)  -- see etl_utils.py"
   },
   "numeric_functions": {
     "ROUND(col, n)": "col.round(n)",
     "TRUNC(col, n)": "np.trunc(col * 10**n) / 10**n",
     "ABS(col)": "col.abs()",
-    "MOD(col, n)": "col % n"
+    "MOD(col, n)": "col % n",
+    "TO_INTEGER(col)": "col.astype('Int64')"
   },
   "lookup_patterns": {
-    "CONNECTED_LOOKUP": "df.merge(ref_df, left_on=join_col, right_on=ref_key, how='left')",
-    "UNCONNECTED_LOOKUP": "df[col].map(ref_dict)",
+    "CONNECTED_LOOKUP": {
+      "description": "Port directement connecte au flux principal",
+      "implementation": "df.merge(ref_df, left_on=join_col, right_on=ref_key, how='left')",
+      "null_safe": "Normalize keys: df[key].str.strip().str.upper().fillna('__NULL__') before merge",
+      "case_insensitive": "If XML attribute 'Case Sensitive' = NO: normalize both sides .str.lower() before merge",
+      "dedup": "ref_df.drop_duplicates(subset=[ref_key], keep='first')  -- implements 'Return First Row'"
+    },
+    "UNCONNECTED_LOOKUP": {
+      "description": "Appele comme fonction :LKP.NAME(arg) dans une Expression -- NEVER as apply(lambda)",
+      "implementation": "Pre-load ref into dict, use .map() on full column",
+      "pattern": "mapping = ref_df.set_index(key_col)[value_col].to_dict()\ndf[output_col] = df[src_col].map(mapping).fillna(default)",
+      "multi_output": "Build one dict per output column: {key: val1_dict}, {key: val2_dict}",
+      "forbidden": "df.apply(lambda x: lookup_func(x))  -- NEVER use apply for unconnected lookup"
+    },
     "LOOKUP_POLICY_FIRST_ROW": "ref_df.drop_duplicates(subset=[ref_key], keep='first')"
+  },
+  "aggregation_patterns": {
+    "COUNT(col)": "df.groupby(keys)[col].count()",
+    "SUM(col)": "df.groupby(keys)[col].sum()",
+    "AVG(col)": "df.groupby(keys)[col].mean()",
+    "MAX(col)": "df.groupby(keys)[col].max()",
+    "MIN(col)": "df.groupby(keys)[col].min()",
+    "sorted_input_required": "If XML 'Sorted Input' = YES: df.sort_values(group_cols, kind='mergesort') BEFORE groupby(sort=False)",
+    "AGGREGATOR_to_pandas": "df.groupby(group_by_cols, sort=False).agg({col: func, ...}).reset_index()"
   },
   "row_functions": {
     "FILTER(condition)": "df[condition]",
-    "ROWNUM": "df.head(n)  or  df.iloc[:n]"
+    "ROWNUM": "df.head(n)  or  df.iloc[:n]",
+    "ROWNUM in subquery": "df.sort_values(sort_cols).head(n)"
+  },
+  "join_patterns": {
+    "JOINER_normal": "df_master.merge(df_detail, on=join_key, how='inner')",
+    "JOINER_left_outer": "df_master.merge(df_detail, on=join_key, how='left')",
+    "JOINER_full_outer": "df_master.merge(df_detail, on=join_key, how='outer')",
+    "sorted_input_required": "If XML 'Sorted Input' = YES: both DataFrames must be sort_values(join_key) before merge"
+  },
+  "union_patterns": {
+    "UNION_ALL": "pd.concat([df1, df2, ...], ignore_index=True)",
+    "UNION_DISTINCT": "pd.concat([df1, df2, ...], ignore_index=True).drop_duplicates()"
+  },
+  "rank_patterns": {
+    "RANK_top_n": "df.groupby(group_cols).apply(lambda g: g.nlargest(n, rank_col)).reset_index(drop=True)",
+    "RANK_window": "df['RANK'] = df.groupby(group_cols)[rank_col].rank(method='min', ascending=False)",
+    "RANK_bottom_n": "df.groupby(group_cols).apply(lambda g: g.nsmallest(n, rank_col)).reset_index(drop=True)"
+  },
+  "normalizer_patterns": {
+    "NORMALIZER_unpivot": {
+      "description": "OCCURS=N avec GCID → pd.melt() ou concat de N frames",
+      "gcid_meaning": "GCID = index 1-based de l'occurrence (1..N) → devient colonne numerique apres melt",
+      "implementation": "See normalizer_unpivot() in etl_utils.py",
+      "pattern": "pd.concat([df[id_cols + [f'{prefix}{str(i).zfill(2)}']].assign(GCID=i) for i in range(1, N+1)])"
+    }
+  },
+  "router_patterns": {
+    "ROUTER": {
+      "description": "Split un DataFrame en N groupes selon des conditions",
+      "implementation": "apply_router(df, groups_dict) from etl_utils.py",
+      "default_group": "Lignes non couvertes par aucun groupe explicite (equivalent GRP_DEFAULT)"
+    }
+  },
+  "sequence_generator_patterns": {
+    "SEQUENCE_GENERATOR": {
+      "description": "Generateur de cles surrogates",
+      "implementation": "generate_surrogate_keys(df, start_val) from etl_utils.py",
+      "warning": "Thread-unsafe — for Spark use monotonically_increasing_id() or UUID"
+    }
+  },
+  "scd_patterns": {
+    "SCD_TYPE_2": {
+      "description": "Historisation : close ancienne version + insert nouvelle",
+      "implementation": "apply_scd2() from etl_utils.py",
+      "outputs": "df_insert (nouvelles lignes) + df_close (SKs a mettre a jour EFF_END_DATE)",
+      "eff_end_open": "pd.Timestamp('9999-12-31')"
+    }
   },
   "oracle_specific": {
-    "ROWNUM <= n": "df.head(n)",
+    "ROWNUM <= n": "df.head(n)  or  df.sort_values(sort_cols).head(n)",
+    "ROWNUM in ORDER BY subquery": "df.sort_values(sort_cols).head(n)",
     "TO_DATE(str, 'YYYY-MM-DD')": "pd.to_datetime(str, format='%Y-%m-%d')",
-    "TO_DATE(str, 'DD/MM/YYYY')": "pd.to_datetime(str, format='%d/%m/%Y')"
+    "TO_DATE(str, 'DD/MM/YYYY')": "pd.to_datetime(str, format='%d/%m/%Y')",
+    "NVL(col, default)": "col.fillna(default)",
+    "DECODE(...)": "col.map(dict).fillna(default)",
+    "CONNECT BY": "ESCALATE -- recursive hierarchy requires pandas NetworkX or recursive CTE translation"
+  },
+  "null_safety_rules": {
+    "rule_1_join_keys": "Always normalize join keys: .str.strip().str.upper().fillna('__NULL__') before merge",
+    "rule_2_filter": "Always .fillna() on filter columns before comparison: df[df['STATUS'].fillna('').ne('I')]",
+    "rule_3_case_insensitive_lookup": "If Informatica lookup is case-insensitive: normalize both sides .str.lower() before merge",
+    "rule_4_nullable_int": "Use pandas Int64 (nullable) for integer columns that may contain NULL",
+    "rule_5_arithmetic": "Use .fillna(0) before arithmetic on potentially null numeric columns"
+  },
+  "sorted_input_rules": {
+    "rule": "If XML TABLEATTRIBUTE 'Sorted Input' = YES on Aggregator or Joiner: add sort_values() before the operation",
+    "aggregator": "df.sort_values(group_by_cols, kind='mergesort') then groupby(sort=False)",
+    "joiner": "Both input DataFrames must be sorted on join key before merge"
   },
   "notes": {
     "no_apply_loops": "All transformations MUST use pandas vectorised operations. Never use df.apply() for row-level logic that can be vectorised.",
-    "lookup_as_merge": "Lookups are always implemented as df.merge(), never as Python loops or dict lookups on single rows.",
-    "idempotence": "Load function writes to a staging table then does an atomic swap (TRUNCATE + INSERT or DELETE + INSERT)."
+    "lookup_as_merge": "Connected lookups are always df.merge(). Unconnected lookups are .map() on pre-loaded dict — never apply().",
+    "idempotence": "Load function writes to .tmp then os.replace() for atomic swap.",
+    "null_handling": "Informatica returns NULL for unmatched lookups and failed comparisons. Always handle nulls explicitly.",
+    "case_sensitivity": "Informatica lookups can be case-insensitive. Check XML flag and normalize keys if needed.",
+    "sorted_input": "Sorted Input = YES means data is pre-sorted in Informatica. Python must replicate this sort explicitly."
   }
 }

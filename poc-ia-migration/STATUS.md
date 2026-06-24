@@ -3,7 +3,7 @@
 **Projet** : Conversion automatique Informatica PowerCenter XML → Python ETL via pipeline multi-agents IA  
 **Branche** : `claude/laughing-curie-04rzxm` — `ecolealgerienne-ui/informatica`  
 **Période** : Juin 2026  
-**Statut** : ✅ Pipeline complet opérationnel — Phase 1 terminée + optimisations post-POC intégrées
+**Statut** : ✅ Pipeline complet opérationnel — Phase 1 terminée + optimisations post-POC + batterie de tests étendue + etl_utils.py
 
 ---
 
@@ -144,6 +144,74 @@ subprocess.run(["claude", "-p", "--output-format", "text"],
 
 ---
 
+### Étape 10 — Batterie de tests étendue + etl_utils.py
+
+**Motivation** : Un seul XML (`wf_clients_dim`) ne suffit pas pour valider la couverture industrielle du pipeline. Une batterie de 8 workflows couvrant LOW → CRITICAL a été générée, accompagnée d'une bibliothèque commune Python.
+
+#### Batterie de tests XML
+
+| # | Fichier | Difficulté | Patterns couverts |
+|---|---|---|---|
+| 1 | `wf_clients_dim.xml` | LOW | Baseline — Lookup connecté, Expression, Filter |
+| 2 | `wf_products_dim.xml` | LOW | `INITCAP`, `IIF` chaîné pour band, calcul ratio marge |
+| 3 | `wf_orders_fact.xml` | MEDIUM | Joiner 2 sources, Aggregator, NVL, sous-requête corrélée |
+| 4 | `wf_sales_monthly.xml` | MEDIUM | Union 2 canaux, DECODE 5 valeurs, Rank TOP 10, `TRUNC(date, 'MM')` |
+| 5 | `wf_accounts_scd2.xml` | HIGH | SCD Type 2, Sequence Generator, Router, Update Strategy, DATEADD |
+| 6 | `wf_transactions_hist.xml` | CRITICAL | ROWNUM, Sorter, déduplication stateful, 2 targets, scoring multi-critères |
+| 7 | `wf_unconnected_lkp.xml` | MEDIUM/HIGH | **Unconnected Lookup** `:LKP.NAME(arg)` — piège apply() vs map() |
+| 8 | `wf_xml_normalizer.xml` | HIGH | **Normalizer** OCCURS=12/GCID — unpivot budget mensuel → `pd.melt()` |
+
+**Source des XMLs 7-8** : recommandation expert externe — patterns classiques de rupture migration non couverts par les 6 premiers XMLs.
+
+#### Nouveaux patterns pour le RAG Base
+
+Suite à la génération des 8 XMLs et à l'analyse de l'expert externe, les patterns suivants ont été ajoutés au RAG Base :
+
+| Pattern | Localisation | Description |
+|---|---|---|
+| Unconnected Lookup | `python_templates.md` | `:LKP.` → dict pre-chargé + `.map()` — JAMAIS apply() |
+| Normalizer/Unpivot (GCID) | `python_templates.md` | `OCCURS=N` → `pd.melt()` via `normalizer_unpivot()` |
+| Null-Safe Comparisons | `python_templates.md` | `.fillna()` avant filter/join — évite perte silencieuse de lignes |
+| Case-Insensitive Lookup | `python_templates.md` | Détection flag XML → `.str.lower()` sur les clés de jointure |
+| Sorted Input (Aggregator/Joiner) | `python_templates.md` | Flag XML `Sorted Input = YES` → `sort_values()` avant `groupby()` |
+| Tous les nouveaux types | `transformation_map.json` | Joiner, Aggregator, Union, Rank, SCD2, Normalizer, Router, Sequence, Unconnected LKP |
+
+#### etl_utils.py — Bibliothèque commune ETL
+
+Nouveau fichier `etl_utils.py` à la racine du projet. Fonctions réutilisables par tous les workflows générés :
+
+| Fonction | Remplace Informatica | Description |
+|---|---|---|
+| `_decode_map(series, mapping, default)` | `DECODE()` | Mapping vectorisé — `col.map(dict).fillna(default)` |
+| `_decode_select(conditions, values, default)` | Nested `IIF()` | `np.select()` multi-conditions |
+| `_safe_lookup(df_main, df_ref, keys, ...)` | Connected Lookup | Left join null-safe avec case normalization optionnelle |
+| `build_unconnected_lkp(ref_file, key, ...)` | Unconnected Lookup | Pre-charge ref → dict pour `.map()` vectorisé |
+| `apply_unconnected_lkp(series, lkp, field)` | `:LKP.NAME(arg)` | Applique un champ du dict sur une série |
+| `apply_router(df, groups)` | Router | Split DataFrame en N groupes, dernier = default |
+| `generate_surrogate_keys(n, start, step)` | Sequence Generator | Clé surrogate — mono-process uniquement |
+| `normalizer_unpivot(df, id_cols, prefixes, N)` | Normalizer OCCURS=N | Unpivot N colonnes → N lignes avec GCID |
+| `apply_scd2(df_src, df_dim, key, scd_cols, ...)` | SCD Type 2 | Retourne (df_insert, df_close) |
+| `_calc_age(birth_series, ref_date)` | `DATEDIFF(SYSDATE, col, 'YY')` | Pattern validé — comparaisons booléennes séparées |
+| `null_safe_ne(series, value)` | `NOT ISNULL AND !=` | Évite perte silencieuse sur NULL |
+| `load_csv_atomic(df, path)` | Load idempotent | `.tmp` + `os.replace()` |
+
+**Impact sur la qualité du CodeGen** : les fonctions `etl_utils.py` seront référencées dans le RAG Base — le CodeGen peut importer directement ces fonctions plutôt que de les réimplémenter, réduisant les erreurs et la variabilité.
+
+#### Recommandations expert externe intégrées
+
+Un expert externe a fourni une analyse de la batterie de tests. Bilan :
+
+| Recommandation | Priorité | Décision |
+|---|---|---|
+| XML 7 — Unconnected Lookup | P0 ✅ | **Implémenté** — piège apply() confirmé, pattern ajouté au RAG |
+| XML 8 — Normalizer/Unpivot | P1 ✅ | **Implémenté** — GCID → GCID col après melt |
+| XML 9 — Transaction Control | P2 ⏸ | **Différé** — pattern obsolète, remplacé par partitionBy en Spark |
+| XML 10 — Java Transformation | Hors scope ❌ | **Rejeté** — escalade systématique via escalate_history.json |
+| 3 pièges RAG (null, case, sorted) | P0 ✅ | **Implémentés** dans python_templates.md |
+| etl_utils.py (4 fonctions core) | P1 ✅ | **Implémenté** — 12 fonctions au total |
+
+---
+
 ### Étape 9 — Matrice de complexité formelle (`71f0ef0`)
 
 **Motivation** : Les flags de complexité générés par le LLM étaient incohérents d'un run à l'autre car aucun critère objectif n'était défini.
@@ -273,8 +341,17 @@ poc-ia-migration/
 ├── SETUP_LOCAL.md                    # Guide installation WSL2+Conda+VSCode
 ├── STATUS.md                         # Ce fichier
 │
+├── etl_utils.py                          # Bibliothèque commune ETL (12 fonctions)
+│
 ├── input/
-│   └── wf_clients_dim.xml            # Mapping Informatica sample
+│   ├── wf_clients_dim.xml            # Baseline — LOW
+│   ├── wf_products_dim.xml           # LOW — INITCAP, marge, IIF chaîné
+│   ├── wf_orders_fact.xml            # MEDIUM — Joiner, Aggregator, NVL
+│   ├── wf_sales_monthly.xml          # MEDIUM — Union, DECODE, Rank
+│   ├── wf_accounts_scd2.xml          # HIGH — SCD Type 2, Sequence, Router
+│   ├── wf_transactions_hist.xml      # CRITICAL — ROWNUM, dédup, multi-target
+│   ├── wf_unconnected_lkp.xml        # MEDIUM/HIGH — Unconnected Lookup :LKP.
+│   └── wf_xml_normalizer.xml         # HIGH — Normalizer OCCURS=12/GCID
 │
 ├── tests/
 │   ├── golden_dataset.csv            # 30 lignes source
@@ -443,3 +520,11 @@ Les items suivants sont reportés en Phase 3, après validation du POC par le ma
 | CI/CD | Intégration GitHub Actions | Décision infra |
 | RAG dynamique | Few-shot examples depuis escalate_history.json | Après 20+ mappings réels en production |
 | Réconciliation distribuée | Validation QA à grande échelle (Spark-based) | Phase 3 — autre équipe |
+
+### Prochaine action immédiate
+
+| Priorité | Tâche |
+|---|---|
+| P0 | Lancer le pipeline sur les 7 nouveaux XMLs pour mesurer la couverture et identifier les gaps restants |
+| P0 | Ajouter post-traitement déterministe dans Documenter — tronquer si `"```json"` apparaît |
+| P1 | Référencer `etl_utils.py` dans les prompts CodeGen + RAG Base pour que le CodeGen importe les fonctions plutôt que de les réimplémenter |
