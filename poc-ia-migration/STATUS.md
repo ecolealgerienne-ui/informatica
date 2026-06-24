@@ -548,10 +548,41 @@ python pipeline/run_pipeline.py input/wf_transactions_hist.xml
 
 ---
 
+### Étape 12 — Campagne de tests multi-workflows + QA resilient
+
+**Améliorations QA (Juin 2026)**
+
+| Amélioration | Description |
+|---|---|
+| `--from-step N` / `--force` | Checkpoint system — skip les étapes dont l'output existe déjà |
+| Fixtures synthétiques | Génère des CSVs de test depuis le canonical JSON (superset 36 cols) |
+| Verdict CRASH | Script qui plante → verdict CRASH dans rapport HTML, pipeline continue |
+| QA standalone | `python agents/qa_agent.py <code_path>` charge canonical JSON automatiquement |
+
+**Résultats campagne de tests** → voir [`RESULTS.md`](RESULTS.md)
+
+| # | Workflow | Difficulté | Steps 1-4 | QA | Observation |
+|---|---|---|---|---|---|
+| 1 | wf_clients_dim | LOW | ✅ | ✅ PASS | Golden data — référence |
+| 3 | wf_orders_fact | MEDIUM | ✅ | ⚠️ FAIL* | Script OK, 0 rows (BATCH_DATE fixtures) |
+| 6 | wf_accounts_scd2 | HIGH | ✅ | ⚠️ CRASH | Script bug sur extract vide |
+| 2,4,5,7,8 | Restants | LOW→CRITICAL | En cours | — | — |
+
+> \* FAIL artificiel : fixtures synthétiques ont `DATE_MODIFIED=2024` mais `BATCH_DATE=2026-01-01`
+
+**Constats intermédiaires**
+- Steps 1-4 (Parser → Documenter) : **100% succès** sur les 3 workflows testés
+- QA avec golden data : **PASS** (wf_clients_dim)
+- QA avec fixtures synthétiques : limité par le BATCH_DATE — correction à prévoir (`BATCH_DATE=2023-01-01`)
+- Workflow CRITICAL (SCD2, score=19) : tous les agents terminent, seul le script généré a un bug mineur
+
+---
+
 ### Prochaine action immédiate
 
 | Priorité | Tâche |
 |---|---|
-| P0 | Lancer le pipeline sur les 7 nouveaux XMLs pour mesurer la couverture et identifier les gaps restants |
-| P0 | Ajouter post-traitement déterministe dans Documenter — tronquer si `"```json"` apparaît |
-| P1 | Référencer `etl_utils.py` dans les prompts CodeGen + RAG Base pour que le CodeGen importe les fonctions plutôt que de les réimplémenter |
+| P0 | Terminer la campagne tests sur les 5 XMLs restants (wf_products_dim, wf_sales_monthly, wf_unconnected_lkp, wf_xml_normalizer, wf_transactions_hist) |
+| P0 | Corriger `BATCH_DATE=2023-01-01` dans les fixtures synthétiques pour tester le code réel |
+| P1 | Ajouter post-traitement déterministe dans Documenter — tronquer si `"```json"` apparaît |
+| P1 | Référencer `etl_utils.py` dans les prompts CodeGen + RAG Base |
