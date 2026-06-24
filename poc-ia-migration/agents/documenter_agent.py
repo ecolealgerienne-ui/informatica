@@ -30,6 +30,20 @@ EXPLANATION_PROMPT = """You are an expert ETL migration consultant who bridges b
 
 ## CRITICAL OUTPUT RULE
 Respond ONLY with a Markdown document. No preamble, no sign-off. Start directly with the first heading.
+Do NOT include any JSON or raw data dumps in your response — the canonical JSON is provided as context only.
+
+## DATEDIFF / AGE PATTERN — USE THIS EXACT FORMULA (do not invent alternatives)
+```python
+def _calc_age(birth_series: pd.Series, ref_date: datetime) -> pd.Series:
+    age = ref_date.year - birth_series.dt.year
+    birthday_passed = (
+        (birth_series.dt.month < ref_date.month) |
+        ((birth_series.dt.month == ref_date.month) &
+         (birth_series.dt.day <= ref_date.day))
+    )
+    return (age - (~birthday_passed).astype(int)).astype("Int64")
+```
+Never use tuple comparison `(month, day) < (month, day)` — it is fragile with NaT values.
 
 ## Task
 Produce a bilingual (French business / English technical) explanation of this Informatica PowerCenter workflow.
@@ -67,7 +81,7 @@ For EACH transformation, produce a section like this:
 ## Risques & points de vigilance migration
 <Bullet list of things a reviewer should double-check>
 
-## Canonical JSON
+## Canonical JSON context (do NOT reproduce this in your output)
 {canonical_json}
 """
 
