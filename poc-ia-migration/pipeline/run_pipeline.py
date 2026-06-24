@@ -136,8 +136,18 @@ def run():
     # -----------------------------------------------------------------------
     section("STEP 5/5 — QA Agent (data diff + HTML report)")
     t = time.time()
+    # Use workflow-specific expected file if it exists, fall back to generic
+    expected_file = f"tests/{workflow_name}_expected.csv"
+    if not Path(expected_file).exists():
+        expected_file = "tests/expected_output.csv"
+
     try:
-        qa         = QAAgent(doc_result["annotated_code_file"], "tests/expected_output.csv")
+        qa         = QAAgent(
+            doc_result["annotated_code_file"],
+            expected_file,
+            canonical=canonical,
+            workflow_name=workflow_name,
+        )
         qa_result  = qa.run()
     except Exception as e:
         log.error(f"QA Agent failed: {e}")

@@ -15,6 +15,7 @@ Steps:
 
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -47,16 +48,104 @@ MAX_SAMPLE = 3  # max anomaly samples sent to LLM per column
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Fixture generation — synthetic test data from canonical JSON schema
+# ---------------------------------------------------------------------------
+
+N_FIXTURE_ROWS = 5
+
+def _extract_file_env_vars(code_path: str) -> list[str]:
+    """Find all os.getenv("*_FILE") references in generated script."""
+    src = Path(code_path).read_text(encoding="utf-8")
+    return list(dict.fromkeys(re.findall(r'os\.getenv\(["\']([A-Z_]+_FILE)["\']', src)))
+
+
+def _synthetic_value(col: str, idx: int) -> str:
+    col_up = col.upper()
+    if any(k in col_up for k in ("DATE", "TIME", "MODIFIED", "CREATION", "START", "END")):
+        return f"2024-0{(idx % 9) + 1}-01"
+    if any(k in col_up for k in ("_ID", "_SK", "_CODE", "NEXTVAL", "CURRVAL")):
+        return str(idx + 1)
+    if any(k in col_up for k in ("LIMIT", "AMOUNT", "RATE", "SCORE", "AMOUNT")):
+        return str(round(1000.0 + idx * 100, 2))
+    if "STATUS" in col_up or "IS_CURRENT" in col_up or "FLAG" in col_up:
+        return "Y" if idx % 2 == 0 else "N"
+    return f"TEST_{col[:10]}_{idx}"
+
+
+def _generate_fixture_csv(columns: list[str], tmp_dir: Path, name: str) -> str:
+    """Generate a minimal synthetic CSV with given columns."""
+    rows = [{col: _synthetic_value(col, i) for col in columns} for i in range(N_FIXTURE_ROWS)]
+    df   = pd.DataFrame(rows)
+    path = tmp_dir / f"{name}.csv"
+    df.to_csv(path, index=False)
+    return str(path)
+
+
+def _build_fixture_env(
+    code_path: str,
+    canonical: dict,
+    tmp_dir: Path,
+    workflow_name: str,
+) -> dict[str, str]:
+    """
+    Build env var dict for executing the batch.
+    For each *_FILE env var found in the script:
+      1. Check tests/{workflow_name}_{var_lower}.csv  — use if exists (golden)
+      2. Otherwise generate synthetic CSV from canonical JSON source fields
+    """
+    file_vars = _extract_file_env_vars(code_path)
+    env_map   = {"OUTPUT_FILE": str(ACTUAL_PATH), "BATCH_DATE": "2026-01-01"}
+
+    # Collect all field names from canonical JSON sources + lookups
+    all_source_fields: list[str] = []
+    for src in canonical.get("source_qualifiers", {}).values():
+        all_source_fields.extend(src.get("output_fields", []))
+    for lkp in canonical.get("lookup_tables", {}).values():
+        all_source_fields.extend(lkp.get("output_fields", []))
+
+    all_source_fields = list(dict.fromkeys(all_source_fields))  # dedupe preserving order
+
+    for var in file_vars:
+        if var == "OUTPUT_FILE":
+            continue
+        # Check for a pre-built golden fixture first
+        golden = Path(f"tests/{workflow_name}_{var.lower()}.csv")
+        if not golden.exists():
+            golden = Path(f"tests/{var.lower()}.csv")
+        if golden.exists():
+            env_map[var] = str(golden)
+            print(f"[QA]   {var} → {golden} (golden)")
+        else:
+            # Generate synthetic CSV: use source fields if we have them, else generic
+            cols = all_source_fields if all_source_fields else ["ID", "VALUE", "STATUS", "DATE_MODIFIED"]
+            path = _generate_fixture_csv(cols, tmp_dir, f"fixture_{var.lower()}")
+            env_map[var] = path
+            print(f"[QA]   {var} → {path} (synthetic, {len(cols)} cols)")
+
+    return env_map
+
+
+# ---------------------------------------------------------------------------
 # Step 1 — Execute the Python batch
 # ---------------------------------------------------------------------------
 
-def execute_batch(code_path: str) -> pd.DataFrame:
+def execute_batch(code_path: str, canonical: dict | None = None, workflow_name: str = "wf_workflow") -> pd.DataFrame:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_dir = OUTPUT_DIR / "_fixtures"
+    tmp_dir.mkdir(exist_ok=True)
+
     env = os.environ.copy()
-    env["SOURCE_FILE"]     = "tests/golden_dataset.csv"
-    env["REF_STATUT_FILE"] = "tests/ref_statut.csv"
-    env["OUTPUT_FILE"]     = str(ACTUAL_PATH)
-    env["BATCH_DATE"]      = "2026-01-01"
+
+    if canonical:
+        fixtures = _build_fixture_env(code_path, canonical, tmp_dir, workflow_name)
+        env.update(fixtures)
+    else:
+        # Legacy fallback: original hardcoded paths for wf_clients_dim
+        env["SOURCE_FILE"]     = "tests/golden_dataset.csv"
+        env["REF_STATUT_FILE"] = "tests/ref_statut.csv"
+        env["OUTPUT_FILE"]     = str(ACTUAL_PATH)
+        env["BATCH_DATE"]      = "2026-01-01"
 
     print(f"[QA] Executing batch: {code_path}")
     result = subprocess.run(
@@ -468,18 +557,40 @@ def build_html(report: dict) -> str:
 # ---------------------------------------------------------------------------
 
 class QAAgent:
-    def __init__(self, code_path: str, expected_path: str):
+    def __init__(
+        self,
+        code_path: str,
+        expected_path: str,
+        canonical: dict | None = None,
+        workflow_name: str = "wf_workflow",
+    ):
         self.code_path     = code_path
         self.expected_path = expected_path
+        self.canonical     = canonical
+        self.workflow_name = workflow_name
 
     def run(self) -> dict:
-        actual   = execute_batch(self.code_path)
-        expected = pd.read_csv(self.expected_path, dtype=str)
-        print(f"[QA] Actual: {len(actual)} rows | Expected: {len(expected)} rows")
+        actual = execute_batch(self.code_path, self.canonical, self.workflow_name)
 
-        diff     = compare(actual, expected)
+        # Use expected file if it exists; otherwise skip diff (execution-only QA)
+        expected_file = Path(self.expected_path)
+        if expected_file.exists():
+            expected   = pd.read_csv(expected_file, dtype=str)
+            print(f"[QA] Actual: {len(actual)} rows | Expected: {len(expected)} rows")
+            diff       = compare(actual, expected)
+            stratified = build_stratified_samples(diff)
+        else:
+            print(f"[QA] No expected file ({self.expected_path}) — execution-only QA (PASS if script ran)")
+            diff = {
+                "anomalies_count": 0,
+                "anomalies": [],
+                "columns": {},
+                "row_counts": {"actual": len(actual), "expected": None},
+                "note": "No expected output file — execution validated only",
+            }
+            stratified = {}
+
         summary  = build_summary(diff)
-        stratified = build_stratified_samples(diff)
         print(f"[QA] Anomalies detected: {diff['anomalies_count']} | Summary payload: ~{len(json.dumps(summary))} bytes")
 
         if diff["anomalies_count"] == 0:
@@ -489,7 +600,7 @@ class QAAgent:
             narrative = interpret_with_claude(summary)
 
         report = {
-            "workflow_id":        "wf_CLIENTS_DIM",
+            "workflow_id":        self.workflow_name,
             "timestamp":          datetime.now(timezone.utc).isoformat(),
             "batch_date":         os.getenv("BATCH_DATE", "2026-01-01"),
             "code_executed":      self.code_path,
