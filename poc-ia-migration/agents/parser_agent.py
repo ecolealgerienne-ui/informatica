@@ -334,9 +334,12 @@ Analyse the Informatica mapping data below and return a JSON object with exactly
 """
 
 
+MODEL = "claude-haiku-4-5-20251001"  # classification task — lightweight model sufficient
+
+
 def call_claude(prompt: str) -> str:
     result = subprocess.run(
-        ["claude", "-p", "--output-format", "text"],
+        ["claude", "-p", "--model", MODEL, "--output-format", "text"],
         input=prompt,
         capture_output=True,
         text=True,

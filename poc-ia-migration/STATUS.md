@@ -183,6 +183,7 @@ subprocess.run(["claude", "-p", "--output-format", "text"],
 | D12 | QA — appel LLM conditionnel | Skip LLM si 0 anomalie (`auto_pass_narrative`) | Appel LLM systématique | Inutile d'appeler le LLM pour confirmer ce que Python a déjà prouvé |
 | D13 | Analyse SQL | `sqlglot` déterministe avant appel LLM | LLM seul pour détecter les constructions SQL | sqlglot garantit des flags fiables (window, subquery, union, fonctions Oracle) ; le LLM reçoit des faits, pas une chaîne opaque à interpréter |
 | D14 | Transpilation SQL → Spark | `sqlglot` (best-effort, stocké dans canonical JSON) | LLM pour la transpilation | Pour les Source Qualifier avec sql_override, sqlglot génère un Spark SQL de départ que le CodeGen peut affiner |
+| D15 | Modèle LLM par agent | Haiku sur Parser/Documenter/QA — Sonnet sur CodeGen/Fixer | Sonnet partout | Les tâches de classification et reformulation ne justifient pas un modèle puissant ; CodeGen et Fixer impactent directement la qualité du code généré — économie estimée ~60-70% du coût LLM |
 
 ---
 

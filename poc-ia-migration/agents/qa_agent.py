@@ -285,9 +285,12 @@ Focus on root cause in the ETL logic, not individual rows.
 """
 
 
+MODEL = "claude-haiku-4-5-20251001"  # compact statistical summary interpretation — lightweight model sufficient
+
+
 def call_claude(prompt: str) -> str:
     result = subprocess.run(
-        ["claude", "-p", "--output-format", "text"],
+        ["claude", "-p", "--model", MODEL, "--output-format", "text"],
         input=prompt, capture_output=True, text=True, timeout=180,
     )
     if result.returncode != 0:

@@ -138,9 +138,12 @@ Return the complete corrected script inside a ```python block.
 """
 
 
+MODEL = "claude-sonnet-4-6"  # semantic correction — powerful model required, errors here trigger ESCALATE
+
+
 def call_claude(prompt: str) -> str:
     result = subprocess.run(
-        ["claude", "-p", "--output-format", "text"],
+        ["claude", "-p", "--model", MODEL, "--output-format", "text"],
         input=prompt,
         capture_output=True,
         text=True,

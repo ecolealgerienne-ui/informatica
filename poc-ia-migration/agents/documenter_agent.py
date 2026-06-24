@@ -106,9 +106,12 @@ Comments must be:
 # Claude Code CLI helpers
 # ---------------------------------------------------------------------------
 
+MODEL = "claude-haiku-4-5-20251001"  # structured reformulation — lightweight model sufficient
+
+
 def call_claude(prompt: str, timeout: int = 300) -> str:
     result = subprocess.run(
-        ["claude", "-p", "--output-format", "text"],
+        ["claude", "-p", "--model", MODEL, "--output-format", "text"],
         input=prompt,
         capture_output=True,
         text=True,

@@ -73,10 +73,13 @@ USER_PROMPT = """Generate the complete Python batch script for this Informatica 
 """
 
 
+MODEL = "claude-sonnet-4-6"  # code generation — powerful model required for quality
+
+
 def call_claude(system: str, user: str) -> str:
     prompt = f"SYSTEM:\n{system}\n\nUSER:\n{user}"
     result = subprocess.run(
-        ["claude", "-p", "--output-format", "text"],
+        ["claude", "-p", "--model", MODEL, "--output-format", "text"],
         input=prompt,
         capture_output=True,
         text=True,
