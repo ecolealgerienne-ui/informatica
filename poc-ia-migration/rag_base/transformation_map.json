@@ -1,0 +1,56 @@
+{
+  "string_functions": {
+    "LTRIM": "str.lstrip()",
+    "RTRIM": "str.rstrip()",
+    "LTRIM_RTRIM": "str.strip()",
+    "UPPER": "str.upper()",
+    "LOWER": "str.lower()",
+    "LENGTH": "str.len()",
+    "SUBSTR": "str[start:end]",
+    "INSTR": "str.find()",
+    "CONCAT": "str + str  or  pd.Series.str.cat()"
+  },
+  "date_functions": {
+    "SYSDATE": "datetime.now()",
+    "SYSTIMESTAMP": "datetime.now()",
+    "TO_DATE(str, fmt)": "pd.to_datetime(str, format=fmt)",
+    "TO_CHAR(date, fmt)": "date.dt.strftime(fmt)",
+    "DATEDIFF(SYSDATE, col, 'YY')": "(datetime.now().year - col.dt.year) - ((datetime.now().month, datetime.now().day) < (col.dt.month, col.dt.day)).astype(int)",
+    "ADD_TO_DATE(date, 'MM', n)": "date + pd.DateOffset(months=n)",
+    "TRUNC(date)": "date.dt.normalize()"
+  },
+  "null_functions": {
+    "ISNULL(col)": "col.isna()",
+    "NVL(col, default)": "col.fillna(default)",
+    "NVL2(col, not_null_val, null_val)": "col.where(col.isna(), not_null_val).fillna(null_val)"
+  },
+  "conditional_functions": {
+    "IIF(cond, true_val, false_val)": "np.where(cond, true_val, false_val)",
+    "DECODE(col, val1, res1, val2, res2, default)": "col.map({val1: res1, val2: res2}).fillna(default)"
+  },
+  "numeric_functions": {
+    "ROUND(col, n)": "col.round(n)",
+    "TRUNC(col, n)": "np.trunc(col * 10**n) / 10**n",
+    "ABS(col)": "col.abs()",
+    "MOD(col, n)": "col % n"
+  },
+  "lookup_patterns": {
+    "CONNECTED_LOOKUP": "df.merge(ref_df, left_on=join_col, right_on=ref_key, how='left')",
+    "UNCONNECTED_LOOKUP": "df[col].map(ref_dict)",
+    "LOOKUP_POLICY_FIRST_ROW": "ref_df.drop_duplicates(subset=[ref_key], keep='first')"
+  },
+  "row_functions": {
+    "FILTER(condition)": "df[condition]",
+    "ROWNUM": "df.head(n)  or  df.iloc[:n]"
+  },
+  "oracle_specific": {
+    "ROWNUM <= n": "df.head(n)",
+    "TO_DATE(str, 'YYYY-MM-DD')": "pd.to_datetime(str, format='%Y-%m-%d')",
+    "TO_DATE(str, 'DD/MM/YYYY')": "pd.to_datetime(str, format='%d/%m/%Y')"
+  },
+  "notes": {
+    "no_apply_loops": "All transformations MUST use pandas vectorised operations. Never use df.apply() for row-level logic that can be vectorised.",
+    "lookup_as_merge": "Lookups are always implemented as df.merge(), never as Python loops or dict lookups on single rows.",
+    "idempotence": "Load function writes to a staging table then does an atomic swap (TRUNCATE + INSERT or DELETE + INSERT)."
+  }
+}
