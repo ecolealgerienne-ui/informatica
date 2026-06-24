@@ -20,6 +20,13 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    import sqlglot
+    import sqlglot.expressions as exp
+    _SQLGLOT_AVAILABLE = True
+except ImportError:
+    _SQLGLOT_AVAILABLE = False
+
 
 RAG_MAP_PATH        = Path("rag_base/transformation_map.json")
 RAG_COMPLEXITY_PATH = Path("rag_base/complexity_matrix.json")
@@ -189,6 +196,81 @@ def build_data_flow(connectors: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# SQL analysis — deterministic, via sqlglot (no LLM)
+# ---------------------------------------------------------------------------
+
+def analyse_sql(sql: str, dialect: str = "oracle") -> dict:
+    """
+    Parse a SQL override with sqlglot and extract complexity flags deterministically.
+    Returns a structured dict that enriches the LLM prompt and the canonical JSON.
+    Falls back gracefully if sqlglot is not installed.
+    """
+    if not sql or not _SQLGLOT_AVAILABLE:
+        return {"available": False, "sql_length": len(sql) if sql else 0}
+
+    try:
+        ast = sqlglot.parse_one(sql, read=dialect, error_level=sqlglot.ErrorLevel.WARN)
+    except Exception as e:
+        return {"available": True, "parse_error": str(e), "sql_length": len(sql)}
+
+    # Detect constructions that map directly to complexity_matrix modifiers
+    has_window      = bool(ast.find(exp.Window))
+    has_subquery    = bool(ast.find(exp.Subquery))
+    has_union       = bool(ast.find(exp.Union))
+    has_distinct    = bool(ast.find(exp.Distinct))
+
+    # Oracle-specific functions detected by name
+    all_funcs = [f.name.upper() for f in ast.find_all(exp.Anonymous)]
+    all_funcs += [f.sql_name().upper() for f in ast.find_all(exp.Func)
+                  if hasattr(f, "sql_name")]
+    func_set = set(all_funcs)
+
+    has_rownum    = "ROWNUM" in sql.upper()  # ROWNUM is a pseudo-column, not a function
+    has_to_date   = "TO_DATE" in func_set or "TO_DATE" in sql.upper()
+    has_to_char   = "TO_CHAR" in func_set or "TO_CHAR" in sql.upper()
+    has_decode    = "DECODE" in func_set or "DECODE" in sql.upper()
+    has_nvl       = "NVL" in func_set or "NVL" in sql.upper()
+    has_trunc     = "TRUNC" in func_set or "TRUNC" in sql.upper()
+
+    # Tables referenced
+    tables = [t.name for t in ast.find_all(exp.Table) if t.name]
+
+    # Spark SQL transpilation (best-effort)
+    spark_sql = None
+    try:
+        spark_sql = sqlglot.transpile(sql, read=dialect, write="spark")[0]
+    except Exception:
+        pass
+
+    # Complexity modifiers that map to complexity_matrix.json
+    complexity_hints = {
+        "has_analytical_functions": has_window,
+        "has_subquery":             has_subquery,
+        "has_union":                has_union,
+        "select_distinct":          has_distinct,
+        "has_oracle_rownum":        has_rownum,
+        "has_oracle_to_date":       has_to_date,
+    }
+
+    return {
+        "available":          True,
+        "dialect":            dialect,
+        "sql_length":         len(sql),
+        "tables_referenced":  tables,
+        "oracle_functions":   sorted(f for f in [
+            "TO_DATE" if has_to_date else None,
+            "TO_CHAR" if has_to_char else None,
+            "DECODE"  if has_decode  else None,
+            "NVL"     if has_nvl     else None,
+            "TRUNC"   if has_trunc   else None,
+            "ROWNUM"  if has_rownum  else None,
+        ] if f),
+        "complexity_hints":   complexity_hints,
+        "spark_sql":          spark_sql,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Claude Code CLI call — semantic analysis
 # ---------------------------------------------------------------------------
 
@@ -244,6 +326,9 @@ Analyse the Informatica mapping data below and return a JSON object with exactly
 ## RAG Base — Complexity Scoring Matrix (USE THIS to compute all scores)
 {complexity_matrix}
 
+## SQL Pre-Analysis (deterministic — computed by sqlglot, trust these flags)
+{sql_analysis}
+
 ## Mapping Data to Analyse
 {mapping_data}
 """
@@ -281,6 +366,20 @@ def analyse_with_claude(structural: dict) -> dict:
     rag_map    = json.loads(RAG_MAP_PATH.read_text(encoding="utf-8"))
     complexity = json.loads(RAG_COMPLEXITY_PATH.read_text(encoding="utf-8"))
 
+    # Run sqlglot analysis on every Source Qualifier with a SQL override
+    sql_analyses = {}
+    for t in structural["transformations"]:
+        if t.get("type") == "Source Qualifier" and t.get("sql_override"):
+            result = analyse_sql(t["sql_override"], dialect="oracle")
+            sql_analyses[t["name"]] = result
+            if result.get("available"):
+                hints = result.get("complexity_hints", {})
+                print(f"[Parser] sqlglot — {t['name']}: "
+                      f"window={hints.get('has_analytical_functions')}, "
+                      f"subquery={hints.get('has_subquery')}, "
+                      f"union={hints.get('has_union')}, "
+                      f"oracle_funcs={result.get('oracle_functions', [])}")
+
     mapping_summary = {
         "mapping_id":      structural["mapping_id"],
         "transformations": [
@@ -301,19 +400,21 @@ def analyse_with_claude(structural: dict) -> dict:
     prompt = CLAUDE_PROMPT_TEMPLATE.format(
         rag_map=json.dumps(rag_map, indent=2),
         complexity_matrix=json.dumps(complexity, indent=2),
+        sql_analysis=json.dumps(sql_analyses, indent=2) if sql_analyses else "{}",
         mapping_data=json.dumps(mapping_summary, indent=2),
     )
 
     print("[Parser] Calling Claude Code for semantic analysis + complexity scoring...")
     raw = call_claude(prompt)
-    return extract_json(raw)
+    return extract_json(raw), sql_analyses
 
 
 # ---------------------------------------------------------------------------
 # Merge structural + LLM analysis → canonical JSON
 # ---------------------------------------------------------------------------
 
-def merge_results(structural: dict, llm: dict) -> dict:
+def merge_results(structural: dict, llm: dict, sql_analyses: dict = None) -> dict:
+    sql_analyses = sql_analyses or {}
     t_analysis = {t["name"]: t for t in llm.get("transformations_analysis", [])}
 
     transformations = []
@@ -333,6 +434,8 @@ def merge_results(structural: dict, llm: dict) -> dict:
             merged["has_sql_override"] = t.get("has_sql_override", False)
             merged["sql_override"]     = t.get("sql_override", "")
             merged["sql_dialect"]      = "oracle"
+            if t["name"] in sql_analyses:
+                merged["sql_analysis"] = sql_analyses[t["name"]]
         if t["type"] == "Lookup Procedure":
             merged["lookup_subtype"]   = analysis.get("lookup_subtype", "CONNECTED_STATIC")
             merged["ref_table"]        = t.get("ref_table", "")
@@ -381,9 +484,9 @@ class ParserAgent:
         print(f"[Parser] Found {len(structural['transformations'])} transformations, "
               f"{len(structural['connectors'])} connectors")
 
-        llm_analysis = analyse_with_claude(structural)
+        llm_analysis, sql_analyses = analyse_with_claude(structural)
 
-        canonical = merge_results(structural, llm_analysis)
+        canonical = merge_results(structural, llm_analysis, sql_analyses)
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         output_path = OUTPUT_DIR / "wf_clients_dim.json"

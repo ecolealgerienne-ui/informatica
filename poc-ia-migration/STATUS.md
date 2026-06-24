@@ -181,6 +181,8 @@ subprocess.run(["claude", "-p", "--output-format", "text"],
 | D10 | QA — exécution | Exécution réelle du code généré + diff CSV | Tests unitaires statiques | Valide le comportement réel end-to-end, pas seulement la syntaxe |
 | D11 | QA — payload LLM | Résumé statistique compact Python (< 2KB) | Lignes d'anomalies brutes | Payload non borné → coût et timeout incontrôlables sur gros volumes ; données sensibles ne doivent pas sortir vers un LLM |
 | D12 | QA — appel LLM conditionnel | Skip LLM si 0 anomalie (`auto_pass_narrative`) | Appel LLM systématique | Inutile d'appeler le LLM pour confirmer ce que Python a déjà prouvé |
+| D13 | Analyse SQL | `sqlglot` déterministe avant appel LLM | LLM seul pour détecter les constructions SQL | sqlglot garantit des flags fiables (window, subquery, union, fonctions Oracle) ; le LLM reçoit des faits, pas une chaîne opaque à interpréter |
+| D14 | Transpilation SQL → Spark | `sqlglot` (best-effort, stocké dans canonical JSON) | LLM pour la transpilation | Pour les Source Qualifier avec sql_override, sqlglot génère un Spark SQL de départ que le CodeGen peut affiner |
 
 ---
 
@@ -307,6 +309,7 @@ poc-ia-migration/
 
 | Commit | Description |
 |---|---|
+| à venir    | feat(parser): sqlglot — analyse SQL déterministe + transpilation Spark |
 | à venir    | fix(qa): payload LLM borné — résumé statistique Python |
 | `71f0ef0` | feat(parser): add formal complexity scoring matrix |
 | `c593ede` | feat: pipeline orchestrateur |
