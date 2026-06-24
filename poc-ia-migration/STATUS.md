@@ -209,6 +209,12 @@ subprocess.run(["claude", "-p", "--output-format", "text"],
 - **Détection** : Fixer Agent détecte et corrige en 1 cycle
 - **Commit** : `54fd56d`
 
+### I8 — QA Agent : debugging difficile sans exemples concrets dans le rapport HTML
+- **Symptôme** : Le rapport HTML montrait uniquement des statistiques agrégées — l'ingénieur ne pouvait pas identifier rapidement quel type de lignes posait problème
+- **Cause** : Le refactoring du payload LLM (I7) avait supprimé les détails ligne par ligne, sans les remplacer dans le HTML
+- **Fix** : `build_stratified_samples()` — sampling stratifié par pattern d'anomalie (drift +1, drift -1, mismatch exact, non-numeric) avec `SAMPLES_PER_BUCKET=3` exemples par bucket, affiché dans une section dédiée du rapport HTML. Jamais envoyé au LLM.
+- **Résultat** : L'ingénieur voit directement "Pattern drift_+1 : 3 exemples CLIENT_ID / valeur obtenue / valeur attendue" sans ouvrir le CSV
+
 ### I7 — QA Agent : payload LLM non borné sur gros volumes
 - **Symptôme** : Le diff envoyait une entrée JSON par ligne en anomalie → sur 1M lignes avec 5% d'anomalies = 50 000 entrées = timeout + coût LLM incontrôlé
 - **Cause** : `col_anomalies` (liste complète) injecté directement dans le prompt sans agrégation
@@ -309,6 +315,7 @@ poc-ia-migration/
 
 | Commit | Description |
 |---|---|
+| à venir    | feat(qa): sampling stratifié + escalate_history.json |
 | à venir    | feat(parser): sqlglot — analyse SQL déterministe + transpilation Spark |
 | à venir    | fix(qa): payload LLM borné — résumé statistique Python |
 | `71f0ef0` | feat(parser): add formal complexity scoring matrix |

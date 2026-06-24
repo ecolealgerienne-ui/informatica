@@ -1,0 +1,16 @@
+{
+  "version": "1.0",
+  "description": "Historique des cas ESCALATE — corrections humaines capitalisées pour le RAG dynamique Phase 3",
+  "schema": {
+    "mapping_id":        "Identifiant du mapping Informatica (ex: wf_CLIENTS_DIM)",
+    "escalated_at":      "ISO 8601 timestamp",
+    "transformation":    "Nom et type de la transformation concernée",
+    "problem":           "Description du problème détecté par le Fixer Agent",
+    "fixer_cycles_used": "Nombre de cycles utilisés avant ESCALATE (toujours 3)",
+    "human_correction":  "Code ou logique de correction appliquée par l'ingénieur",
+    "root_cause":        "Cause racine identifiée (catégorie: sql_override / proprietary_function / custom_logic / other)",
+    "few_shot_prompt":   "Exemple formaté prêt à injecter dans le prompt CodeGen (Phase 3)",
+    "tags":              "Liste de tags pour la recherche par similarité (ex: ['DECODE', 'nested_iif', 'oracle_dialect'])"
+  },
+  "entries": []
+}

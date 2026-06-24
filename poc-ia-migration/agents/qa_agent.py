@@ -154,6 +154,60 @@ def compare(actual: pd.DataFrame, expected: pd.DataFrame) -> dict:
     }
 
 
+SAMPLES_PER_BUCKET = 3  # lignes par bucket dans le sampling stratifié
+
+
+# ---------------------------------------------------------------------------
+# Step 3b — Stratified sampling for HTML diagnostic (never sent to LLM)
+# ---------------------------------------------------------------------------
+
+def build_stratified_samples(diff: dict) -> dict:
+    """
+    Pour chaque colonne en anomalie, produit des échantillons représentatifs
+    groupés par pattern (ex: diff=+1, diff=-1, null, mismatch).
+    Stocké dans le rapport HTML uniquement — jamais envoyé au LLM.
+    """
+    samples = {}
+    for col, result in diff["columns"].items():
+        if result.get("status") != "ANOMALY":
+            continue
+
+        details = result.get("details", [])
+        buckets: dict[str, list] = {}
+
+        for row in details:
+            # Clé de bucket selon le type d'anomalie
+            if "error" in row:
+                key = f"non-numeric"
+            elif "diff" in row:
+                d = float(row["diff"])
+                actual_f   = float(row["actual"])   if row["actual"]   not in (None, "nan", "") else None
+                expected_f = float(row["expected"]) if row["expected"] not in (None, "nan", "") else None
+                if actual_f is not None and expected_f is not None:
+                    direction = "+1" if actual_f > expected_f else "-1" if actual_f < expected_f else f"diff={d:.1f}"
+                    key = f"drift_{direction}"
+                else:
+                    key = f"drift_{d:.1f}"
+            else:
+                # exact mismatch — bucket par valeur attendue
+                key = f"expected={str(row.get('expected', ''))[:30]}"
+
+            buckets.setdefault(key, [])
+            if len(buckets[key]) < SAMPLES_PER_BUCKET:
+                buckets[key].append({
+                    "client_id": row.get("client_id"),
+                    "actual":    row.get("actual"),
+                    "expected":  row.get("expected"),
+                })
+
+        samples[col] = {
+            "total_anomalies": len(details),
+            "buckets":         buckets,
+        }
+
+    return samples
+
+
 # ---------------------------------------------------------------------------
 # Step 3 — Compact statistical summary (size-bounded, safe to send to LLM)
 # ---------------------------------------------------------------------------
@@ -320,6 +374,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   {column_rows}
 </table>
 {anomaly_details}
+<h2>Échantillons diagnostiques (sampling stratifié)</h2>
+{stratified_section}
 <h2>Recommandations</h2>
 <ul>{recommendations}</ul>
 <h2>Rapport JSON complet</h2>
@@ -329,10 +385,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </html>"""
 
 
+def _build_stratified_html(stratified: dict) -> str:
+    if not stratified:
+        return "<p>Aucune anomalie — aucun échantillon diagnostique.</p>"
+
+    html = ""
+    for col, data in stratified.items():
+        html += f"<h3>Colonne <code>{col}</code> — {data['total_anomalies']} anomalie(s)</h3>"
+        for bucket_name, rows in data["buckets"].items():
+            html += f"<p><strong>Pattern : {bucket_name}</strong></p>"
+            html += "<table><tr><th>CLIENT_ID</th><th>Valeur obtenue</th><th>Valeur attendue</th></tr>"
+            for r in rows:
+                html += f"<tr><td>{r['client_id']}</td><td>{r['actual']}</td><td>{r['expected']}</td></tr>"
+            html += "</table>"
+    return html
+
+
 def build_html(report: dict) -> str:
-    diff      = report["diff"]
-    narrative = report["narrative"]
-    verdict   = narrative.get("overall_verdict", "FAIL")
+    diff       = report["diff"]
+    narrative  = report["narrative"]
+    stratified = report.get("stratified_samples", {})
+    verdict    = narrative.get("overall_verdict", "FAIL")
 
     col_rows = ""
     for col, rule in TOLERANCE.items():
@@ -381,6 +454,7 @@ def build_html(report: dict) -> str:
         anomalies_count=diff["anomalies_count"],
         column_rows=col_rows,
         anomaly_details=anomaly_details or "<p>Aucune anomalie détectée.</p>",
+        stratified_section=_build_stratified_html(stratified),
         recommendations=recommendations,
         json_report=json.dumps(report, indent=2, ensure_ascii=False)[:4000],
     )
@@ -400,8 +474,9 @@ class QAAgent:
         expected = pd.read_csv(self.expected_path, dtype=str)
         print(f"[QA] Actual: {len(actual)} rows | Expected: {len(expected)} rows")
 
-        diff    = compare(actual, expected)
-        summary = build_summary(diff)
+        diff     = compare(actual, expected)
+        summary  = build_summary(diff)
+        stratified = build_stratified_samples(diff)
         print(f"[QA] Anomalies detected: {diff['anomalies_count']} | Summary payload: ~{len(json.dumps(summary))} bytes")
 
         if diff["anomalies_count"] == 0:
@@ -411,15 +486,16 @@ class QAAgent:
             narrative = interpret_with_claude(summary)
 
         report = {
-            "workflow_id":     "wf_CLIENTS_DIM",
-            "timestamp":       datetime.now(timezone.utc).isoformat(),
-            "batch_date":      os.getenv("BATCH_DATE", "2026-01-01"),
-            "code_executed":   self.code_path,
-            "expected_file":   self.expected_path,
-            "diff":            diff,
-            "narrative":       narrative,
-            "anomalies_count": diff["anomalies_count"],
-            "overall_verdict": narrative.get("overall_verdict", "FAIL"),
+            "workflow_id":        "wf_CLIENTS_DIM",
+            "timestamp":          datetime.now(timezone.utc).isoformat(),
+            "batch_date":         os.getenv("BATCH_DATE", "2026-01-01"),
+            "code_executed":      self.code_path,
+            "expected_file":      self.expected_path,
+            "diff":               diff,
+            "stratified_samples": stratified,
+            "narrative":          narrative,
+            "anomalies_count":    diff["anomalies_count"],
+            "overall_verdict":    narrative.get("overall_verdict", "FAIL"),
         }
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
