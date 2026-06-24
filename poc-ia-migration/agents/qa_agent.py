@@ -113,9 +113,11 @@ def _synthetic_value(col: str, idx: int) -> str:
 
 
 def _generate_fixture_csv(columns: list[str], tmp_dir: Path, name: str) -> str:
-    """Generate a minimal synthetic CSV with given columns."""
-    rows = [{col: _synthetic_value(col, i) for col in columns} for i in range(N_FIXTURE_ROWS)]
-    df   = pd.DataFrame(rows)
+    """Generate a minimal synthetic CSV with given columns (deduplicated)."""
+    unique_cols = list(dict.fromkeys(columns))  # preserve order, remove duplicates
+    rows = [{col: _synthetic_value(col, i) for col in unique_cols} for i in range(N_FIXTURE_ROWS)]
+    df   = pd.DataFrame(rows, columns=unique_cols)
+    assert df.columns.is_unique, f"Duplicate columns in fixture {name}: {df.columns[df.columns.duplicated()].tolist()}"
     path = tmp_dir / f"{name}.csv"
     df.to_csv(path, index=False)
     return str(path)
@@ -220,9 +222,10 @@ def _build_fixture_env(
             cols = all_cols
             src  = "superset-all"
 
-            path = _generate_fixture_csv(cols, tmp_dir, f"fixture_{var.lower()}")
+            unique_cols = list(dict.fromkeys(cols))
+            path = _generate_fixture_csv(unique_cols, tmp_dir, f"fixture_{var.lower()}")
             env_map[var] = path
-            print(f"[QA]   {var} → {path} ({src}, {len(cols)} cols)")
+            print(f"[QA]   {var} → {path} ({src}, {len(unique_cols)} cols)")
 
     return env_map
 
@@ -234,7 +237,11 @@ def _build_fixture_env(
 def execute_batch(code_path: str, canonical: dict | None = None, workflow_name: str = "wf_workflow") -> pd.DataFrame:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     tmp_dir = OUTPUT_DIR / "_fixtures"
-    tmp_dir.mkdir(exist_ok=True)
+    # Always recreate fixture dir to avoid stale CSVs from previous runs
+    import shutil
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir)
+    tmp_dir.mkdir(parents=True)
 
     env = os.environ.copy()
 
