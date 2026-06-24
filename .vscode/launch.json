@@ -56,6 +56,15 @@
       "console": "integratedTerminal"
     },
     {
+      "name": "Run Full Pipeline",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/poc-ia-migration/pipeline/run_pipeline.py",
+      "cwd": "${workspaceFolder}/poc-ia-migration",
+      "envFile": "${workspaceFolder}/poc-ia-migration/.env",
+      "console": "integratedTerminal"
+    },
+    {
       "name": "Setup: Generate XML",
       "type": "debugpy",
       "request": "launch",
