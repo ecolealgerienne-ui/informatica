@@ -83,7 +83,7 @@ def execute_batch(code_path: str) -> pd.DataFrame:
 
 def normalise(df: pd.DataFrame) -> pd.DataFrame:
     """Normalise string columns for comparison."""
-    for col in df.select_dtypes(include="object").columns:
+    for col in df.select_dtypes(include=["object", "str"]).columns:
         df[col] = df[col].str.strip()
     return df
 
