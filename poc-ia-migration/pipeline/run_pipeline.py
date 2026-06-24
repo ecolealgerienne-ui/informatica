@@ -217,10 +217,14 @@ def run():
         sys.exit(1)
 
     verdict = qa_result["overall_verdict"]
+    verdict_icon = "✅" if verdict == "PASS" else ("⚠️" if verdict == "CRASH" else "❌")
     log.info(
-        f"✅ QA Agent — {elapsed(t)} | "
+        f"{verdict_icon} QA Agent — {elapsed(t)} | "
         f"anomalies={qa_result['anomalies_count']} | verdict={verdict}"
     )
+    if verdict == "CRASH":
+        last_line = (qa_result.get("crash_traceback") or "").strip().splitlines()
+        log.warning(f"  Crash: {last_line[-1] if last_line else 'see data_diff_report.json'}")
 
     # -----------------------------------------------------------------------
     # Final summary
@@ -243,7 +247,9 @@ def run():
     log.info(f"    📊 output/04_data_diff_report/data_diff_report.html")
     log.info("=" * 72)
 
-    if verdict != "PASS":
+    if verdict == "CRASH":
+        log.warning("⚠️  Script crash — voir output/04_data_diff_report/data_diff_report.html")
+    elif verdict != "PASS":
         log.warning("⚠️  QA non validé — voir output/04_data_diff_report/data_diff_report.html")
         sys.exit(1)
 

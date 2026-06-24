@@ -260,11 +260,12 @@ def execute_batch(code_path: str, canonical: dict | None = None, workflow_name: 
         [sys.executable, code_path],
         capture_output=True, text=True, env=env, timeout=60,
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"Batch execution failed:\n{result.stderr}")
     for line in result.stdout.splitlines():
         print(f"[QA]   {line}")
-    return pd.read_csv(ACTUAL_PATH, dtype=str)
+    if result.returncode != 0:
+        # Return sentinel to signal crash — pipeline keeps running, QA reports CRASH
+        return None, result.stderr
+    return pd.read_csv(ACTUAL_PATH, dtype=str), None
 
 
 # ---------------------------------------------------------------------------
@@ -638,8 +639,12 @@ def build_html(report: dict) -> str:
         anomaly_details += "</div>"
 
     recommendations = "\n".join(f"<li>{r}</li>" for r in narrative.get("recommendations", ["Aucune action requise."]))
-    verdict_class = "pass" if verdict == "PASS" else "fail"
-    verdict_label = "✅ PASS — Migration validée" if verdict == "PASS" else "❌ FAIL — Anomalies détectées"
+    verdict_class = "pass" if verdict == "PASS" else ("warn" if verdict == "CRASH" else "fail")
+    verdict_label = {
+        "PASS":  "✅ PASS — Migration validée",
+        "CRASH": "⚠️ CRASH — Script planté à l'exécution",
+        "FAIL":  "❌ FAIL — Anomalies détectées",
+    }.get(verdict, f"❌ {verdict}")
 
     return HTML_TEMPLATE.format(
         workflow_id=report["workflow_id"],
@@ -648,9 +653,9 @@ def build_html(report: dict) -> str:
         verdict_class=verdict_class,
         verdict_label=verdict_label,
         summary=narrative.get("summary", ""),
-        rows_expected=diff["rows_expected"],
-        rows_actual=diff["rows_actual"],
-        rows_common=diff["rows_common"],
+        rows_expected=diff.get("rows_expected", "N/A"),
+        rows_actual=diff.get("rows_actual", 0),
+        rows_common=diff.get("rows_common", 0),
         anomalies_count=diff["anomalies_count"],
         column_rows=col_rows,
         anomaly_details=anomaly_details or "<p>Aucune anomalie détectée.</p>",
@@ -678,9 +683,50 @@ class QAAgent:
         self.workflow_name = workflow_name
 
     def run(self) -> dict:
-        actual = execute_batch(self.code_path, self.canonical, self.workflow_name)
+        actual, crash_error = execute_batch(self.code_path, self.canonical, self.workflow_name)
 
-        # Use expected file if it exists; otherwise skip diff (execution-only QA)
+        # --- CRASH: script failed to execute ---
+        if actual is None:
+            print(f"[QA] ⚠️  Batch CRASH — recording in report (pipeline continues)")
+            print(f"[QA]   {crash_error.splitlines()[-1] if crash_error else 'unknown error'}")
+            crash_diff = {
+                "anomalies_count": 1,
+                "anomalies": [{"type": "EXECUTION_CRASH", "count": 1, "detail": crash_error or ""}],
+                "columns": {},
+                "rows_expected": None,
+                "rows_actual": 0,
+                "rows_common": 0,
+            }
+            narrative = {
+                "overall_verdict": "CRASH",
+                "summary": f"Le script a planté à l'exécution : {(crash_error or '').splitlines()[-1]}",
+                "column_verdicts": {},
+                "recommendations": ["Corriger l'erreur d'exécution du script généré avant validation QA."],
+            }
+            report = {
+                "workflow_id":     self.workflow_name,
+                "timestamp":       datetime.now(timezone.utc).isoformat(),
+                "batch_date":      os.getenv("BATCH_DATE", "2026-01-01"),
+                "code_executed":   self.code_path,
+                "expected_file":   self.expected_path,
+                "diff":            crash_diff,
+                "stratified_samples": {},
+                "narrative":       narrative,
+                "anomalies_count": 1,
+                "overall_verdict": "CRASH",
+                "crash_traceback": crash_error or "",
+            }
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            json_path = OUTPUT_DIR / "data_diff_report.json"
+            json_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+            html_path = OUTPUT_DIR / "data_diff_report.html"
+            html_path.write_text(build_html(report), encoding="utf-8")
+            print(f"[QA] JSON report → {json_path}")
+            print(f"[QA] HTML report → {html_path}")
+            print(f"[QA] Verdict     : CRASH")
+            return report
+
+        # --- SUCCESS: script ran, do diff ---
         expected_file = Path(self.expected_path)
         if expected_file.exists():
             expected   = pd.read_csv(expected_file, dtype=str)
@@ -688,18 +734,20 @@ class QAAgent:
             diff       = compare(actual, expected)
             stratified = build_stratified_samples(diff)
         else:
-            print(f"[QA] No expected file ({self.expected_path}) — execution-only QA (PASS if script ran)")
+            print(f"[QA] No expected file ({self.expected_path}) — execution-only QA")
             diff = {
                 "anomalies_count": 0,
                 "anomalies": [],
                 "columns": {},
-                "row_counts": {"actual": len(actual), "expected": None},
+                "rows_expected": None,
+                "rows_actual": len(actual),
+                "rows_common": 0,
                 "note": "No expected output file — execution validated only",
             }
             stratified = {}
 
         summary  = build_summary(diff)
-        print(f"[QA] Anomalies detected: {diff['anomalies_count']} | Summary payload: ~{len(json.dumps(summary))} bytes")
+        print(f"[QA] Anomalies detected: {diff['anomalies_count']} | Summary: ~{len(json.dumps(summary))} bytes")
 
         if diff["anomalies_count"] == 0:
             print("[QA] No anomalies — skipping LLM call")
