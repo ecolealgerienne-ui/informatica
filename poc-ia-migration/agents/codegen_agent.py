@@ -24,6 +24,11 @@ RAG_MAP_PATH        = Path("rag_base/transformation_map.json")
 
 SYSTEM_PROMPT = """You are an expert Python ETL engineer specialising in migrating Informatica PowerCenter workflows to Python/pandas.
 
+## CRITICAL OUTPUT RULE — READ FIRST
+Your response MUST be a single ```python ... ``` code block containing the complete batch script.
+NO prose, NO explanations, NO tables, NO markdown outside the code block.
+The response starts with ```python and ends with ```. Nothing else.
+
 ## Your role
 Generate a complete, runnable Python batch script from a canonical JSON description of an Informatica mapping.
 
@@ -34,7 +39,7 @@ Generate a complete, runnable Python batch script from a canonical JSON descript
 4. Load function MUST be idempotent (write to .tmp then os.replace())
 5. Follow the exact mandatory batch structure from the RAG Base
 6. All datetime operations use pd.to_datetime() or .dt accessor — never strptime() in a loop
-7. Output raw Python code only — no markdown fences, no explanations
+7. Output ONLY the ```python code block — zero explanations, zero markdown outside the block
 
 ## RAG Base — Approved transformation map
 {rag_map}
@@ -83,13 +88,34 @@ def call_claude(system: str, user: str) -> str:
 
 
 def clean_code(raw: str) -> str:
-    """Strip markdown fences if Claude added them despite instructions."""
+    """Extract Python code from Claude response regardless of wrapping format."""
+    # Case 1: response contains a ```python ... ``` block → extract it
+    if "```python" in raw:
+        start = raw.find("```python") + len("```python")
+        end   = raw.find("```", start)
+        if end != -1:
+            return raw[start:end].strip()
+
+    # Case 2: generic ``` block
+    if "```" in raw:
+        start = raw.find("```") + 3
+        # skip language tag if present
+        nl = raw.find("\n", start)
+        if nl != -1:
+            start = nl + 1
+        end = raw.find("```", start)
+        if end != -1:
+            return raw[start:end].strip()
+
+    # Case 3: raw Python — find first line that looks like Python
     lines = raw.splitlines()
-    if lines and lines[0].startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].startswith("```"):
-        lines = lines[:-1]
-    return "\n".join(lines)
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if (stripped.startswith('"""') or stripped.startswith("import ")
+                or stripped.startswith("# ") or stripped.startswith("from ")):
+            return "\n".join(lines[i:]).strip()
+
+    return raw.strip()
 
 
 class CodeGenAgent:
