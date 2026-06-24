@@ -235,10 +235,11 @@ Analyse the Informatica mapping data below and return a JSON object with exactly
 
 def call_claude(prompt: str) -> str:
     result = subprocess.run(
-        ["claude", "-p", prompt, "--output-format", "text"],
+        ["claude", "-p", "--output-format", "text"],
+        input=prompt,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=180,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Claude CLI error:\n{result.stderr}")

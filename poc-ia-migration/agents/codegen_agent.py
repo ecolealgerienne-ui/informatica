@@ -71,10 +71,11 @@ USER_PROMPT = """Generate the complete Python batch script for this Informatica 
 def call_claude(system: str, user: str) -> str:
     prompt = f"SYSTEM:\n{system}\n\nUSER:\n{user}"
     result = subprocess.run(
-        ["claude", "-p", prompt, "--output-format", "text"],
+        ["claude", "-p", "--output-format", "text"],
+        input=prompt,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=300,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Claude CLI error:\n{result.stderr}")
