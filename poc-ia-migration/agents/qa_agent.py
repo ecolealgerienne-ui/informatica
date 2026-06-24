@@ -60,6 +60,45 @@ def _extract_file_env_vars(code_path: str) -> list[str]:
     return list(dict.fromkeys(re.findall(r'os\.getenv\(["\']([A-Z_]+_FILE)["\']', src)))
 
 
+def _columns_used_per_env_var(code_path: str) -> dict[str, list[str]]:
+    """
+    Parse the generated script to find which columns each *_FILE variable uses.
+    Strategy: find variable assigned from pd.read_csv(ENV_VAR), then collect
+    all df["COL"] and df[["COL1","COL2"]] and subset=[...] references on that var.
+    Returns {ENV_VAR: [col1, col2, ...]}
+    """
+    src = Path(code_path).read_text(encoding="utf-8")
+    result: dict[str, list[str]] = {}
+
+    # Step 1: map env var → local variable name
+    # e.g.  dim = pd.read_csv(DIM_ACCOUNTS_FILE)
+    #        df  = pd.read_csv(SOURCE_FILE, ...)
+    var_to_local: dict[str, str] = {}
+    for m in re.finditer(
+        r'(\w+)\s*=\s*pd\.read_csv\(\s*([A-Z_]+_FILE)\b',
+        src,
+    ):
+        local_var, env_var = m.group(1), m.group(2)
+        var_to_local[env_var] = local_var
+
+    # Step 2: for each local var, collect column references
+    for env_var, local in var_to_local.items():
+        cols: list[str] = []
+        # df["COL"] or df[['COL']]
+        cols += re.findall(rf'{re.escape(local)}\[\s*["\']([A-Z_][A-Z0-9_]*)["\']', src)
+        # subset=["COL1", "COL2"]
+        cols += re.findall(r'subset\s*=\s*\[([^\]]+)\]', src)
+        # flatten subset matches (they're comma-separated quoted strings)
+        flat: list[str] = []
+        for c in cols:
+            flat += re.findall(r'["\']([A-Z_][A-Z0-9_]*)["\']', c)
+        cols = list(dict.fromkeys(flat or cols))
+        if cols:
+            result[env_var] = cols
+
+    return result
+
+
 def _synthetic_value(col: str, idx: int) -> str:
     col_up = col.upper()
     if any(k in col_up for k in ("DATE", "TIME", "MODIFIED", "CREATION", "START", "END")):
@@ -148,11 +187,16 @@ def _build_fixture_env(
       1. Check tests/{workflow_name}_{var_lower}.csv  — use if exists (golden)
       2. Otherwise generate synthetic CSV from canonical JSON port names
     """
-    file_vars = _extract_file_env_vars(code_path)
-    env_map   = {"OUTPUT_FILE": str(ACTUAL_PATH), "BATCH_DATE": "2026-01-01"}
+    file_vars    = _extract_file_env_vars(code_path)
+    env_map      = {"OUTPUT_FILE": str(ACTUAL_PATH), "BATCH_DATE": "2026-01-01"}
 
+    # Priority 1: columns inferred by static analysis of the generated script itself
+    script_cols  = _columns_used_per_env_var(code_path)
+
+    # Priority 2: canonical JSON structural info
     source_cols, lkp_cols = _fields_from_canonical(canonical)
-    # Fallback: all ports from all transformations
+
+    # Priority 3: all ports from all transformations (superset fallback)
     all_cols = list(dict.fromkeys(
         p["name"]
         for t in canonical.get("transformations", [])
@@ -171,18 +215,21 @@ def _build_fixture_env(
             env_map[var] = str(golden)
             print(f"[QA]   {var} → {golden} (golden)")
         else:
-            # Pick columns: SOURCE_FILE → SQ ports, DIM_*/LKP_* → lookup ports, else all
-            var_up = var.upper()
-            if var_up == "SOURCE_FILE":
-                cols = source_cols or all_cols
+            # Column selection: script analysis → canonical → fallback
+            if var in script_cols and script_cols[var]:
+                cols = script_cols[var]
+                src  = "script-inferred"
+            elif var == "SOURCE_FILE" and source_cols:
+                cols = source_cols
+                src  = "canonical-source"
             else:
-                # Try to match lookup by name fragment (e.g. DIM_ACCOUNTS_FILE → DIM_ACCOUNTS)
-                table_hint = var_up.replace("_FILE", "")
+                table_hint = var.upper().replace("_FILE", "")
                 cols = lkp_cols.get(table_hint, all_cols)
+                src  = "canonical-lookup" if table_hint in lkp_cols else "fallback-all"
 
             path = _generate_fixture_csv(cols, tmp_dir, f"fixture_{var.lower()}")
             env_map[var] = path
-            print(f"[QA]   {var} → {path} (synthetic, {len(cols)} cols)")
+            print(f"[QA]   {var} → {path} ({src}, {len(cols)} cols)")
 
     return env_map
 
