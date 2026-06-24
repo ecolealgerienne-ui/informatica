@@ -63,7 +63,14 @@ def run():
 
     platform    = canonical["routing_decision"]["target_platform"]
     feasibility = canonical["routing_decision"]["auto_conversion_feasibility"]
-    log.info(f"✅ Parser Agent — {elapsed(t)} | platform={platform} | feasibility={feasibility}")
+    complexity  = canonical.get("workflow_complexity", {})
+    wf_flag     = complexity.get("flag", "?")
+    wf_score    = complexity.get("total_score", "?")
+    wf_days     = complexity.get("estimated_migration_days", "?")
+    log.info(
+        f"✅ Parser Agent — {elapsed(t)} | platform={platform} | "
+        f"feasibility={feasibility} | complexity={wf_flag} (score={wf_score}, ~{wf_days}j)"
+    )
 
     # -----------------------------------------------------------------------
     # Step 2 — CodeGen Agent

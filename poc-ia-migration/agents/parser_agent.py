@@ -21,7 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-RAG_MAP_PATH = Path("rag_base/transformation_map.json")
+RAG_MAP_PATH        = Path("rag_base/transformation_map.json")
+RAG_COMPLEXITY_PATH = Path("rag_base/complexity_matrix.json")
 OUTPUT_DIR   = Path("output/01_canonical_json")
 
 
@@ -199,7 +200,7 @@ Analyse the Informatica mapping data below and return a JSON object with exactly
 
 {{
   "routing_decision": {{
-    "target_platform": "python",
+    "target_platform": "python|pyspark|databricks",
     "rationale": "<one sentence>",
     "auto_conversion_feasibility": "HIGH|MEDIUM|LOW",
     "human_intervention_required": true|false
@@ -208,12 +209,24 @@ Analyse the Informatica mapping data below and return a JSON object with exactly
     {{
       "name": "<transformation name>",
       "complexity_flag": "LOW|MEDIUM|HIGH|CRITICAL",
+      "complexity_score": <integer computed from the scoring matrix>,
+      "score_breakdown": {{"<modifier_key>": <score>, ...}},
       "has_proprietary_functions": ["list", "of", "functions"],
       "python_equivalents": {{"FUNC": "pandas equivalent"}},
       "lookup_subtype": "CONNECTED_STATIC|CONNECTED_DYNAMIC|UNCONNECTED|null",
       "notes": "<optional short note>"
     }}
   ],
+  "workflow_complexity": {{
+    "total_score": <sum of all transformation scores + global modifiers>,
+    "flag": "LOW|MEDIUM|HIGH|CRITICAL",
+    "estimated_migration_days": "<range from thresholds>",
+    "auto_conversion": true|false,
+    "score_breakdown": {{
+      "transformations": {{"<name>": <score>}},
+      "global_modifiers": {{"<modifier>": <score>}}
+    }}
+  }},
   "global_flags": {{
     "has_java_transformation": false,
     "has_dynamic_lookup": false,
@@ -227,6 +240,9 @@ Analyse the Informatica mapping data below and return a JSON object with exactly
 
 ## RAG Base — Transformation Map (approved Python equivalents)
 {rag_map}
+
+## RAG Base — Complexity Scoring Matrix (USE THIS to compute all scores)
+{complexity_matrix}
 
 ## Mapping Data to Analyse
 {mapping_data}
@@ -262,7 +278,8 @@ def extract_json(raw: str) -> dict:
 
 
 def analyse_with_claude(structural: dict) -> dict:
-    rag_map = json.loads(RAG_MAP_PATH.read_text(encoding="utf-8"))
+    rag_map    = json.loads(RAG_MAP_PATH.read_text(encoding="utf-8"))
+    complexity = json.loads(RAG_COMPLEXITY_PATH.read_text(encoding="utf-8"))
 
     mapping_summary = {
         "mapping_id":      structural["mapping_id"],
@@ -283,10 +300,11 @@ def analyse_with_claude(structural: dict) -> dict:
 
     prompt = CLAUDE_PROMPT_TEMPLATE.format(
         rag_map=json.dumps(rag_map, indent=2),
+        complexity_matrix=json.dumps(complexity, indent=2),
         mapping_data=json.dumps(mapping_summary, indent=2),
     )
 
-    print("[Parser] Calling Claude Code for semantic analysis...")
+    print("[Parser] Calling Claude Code for semantic analysis + complexity scoring...")
     raw = call_claude(prompt)
     return extract_json(raw)
 
@@ -305,6 +323,8 @@ def merge_results(structural: dict, llm: dict) -> dict:
             "name":                    t["name"],
             "type":                    t["type"],
             "complexity_flag":         analysis.get("complexity_flag", "MEDIUM"),
+            "complexity_score":        analysis.get("complexity_score", 0),
+            "score_breakdown":         analysis.get("score_breakdown", {}),
             "has_proprietary_functions": analysis.get("has_proprietary_functions", []),
             "python_equivalents":      analysis.get("python_equivalents", {}),
             "ports":                   t["ports"],
@@ -330,19 +350,20 @@ def merge_results(structural: dict, llm: dict) -> dict:
     session_vars = wf.get("session", {}).get("variables", [])
 
     return {
-        "workflow_id":       wf.get("workflow_name", ""),
-        "mapping_id":        structural["mapping_id"],
-        "parsed_at":         datetime.now(timezone.utc).isoformat(),
-        "routing_decision":  llm.get("routing_decision", {}),
+        "workflow_id":        wf.get("workflow_name", ""),
+        "mapping_id":         structural["mapping_id"],
+        "parsed_at":          datetime.now(timezone.utc).isoformat(),
+        "routing_decision":   llm.get("routing_decision", {}),
+        "workflow_complexity": llm.get("workflow_complexity", {}),
         "session": {
             "parameter_file": wf.get("session", {}).get("parameter_file", ""),
             "variables":      session_vars,
         },
-        "sources":           structural["sources"],
-        "targets":           structural["targets"],
-        "transformations":   transformations,
-        "data_flow":         build_data_flow(structural["connectors"]),
-        "flags":             llm.get("global_flags", {}),
+        "sources":            structural["sources"],
+        "targets":            structural["targets"],
+        "transformations":    transformations,
+        "data_flow":          build_data_flow(structural["connectors"]),
+        "flags":              llm.get("global_flags", {}),
     }
 
 

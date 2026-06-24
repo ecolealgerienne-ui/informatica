@@ -1,0 +1,143 @@
+{
+  "version": "1.0",
+  "description": "Grille de scoring de complexité pour la migration Informatica PowerCenter → Python/PySpark",
+
+  "transformation_scores": {
+    "Source Qualifier": {
+      "base_score": 1,
+      "modifiers": {
+        "has_sql_override":            { "score": 2, "reason": "SQL Oracle à réécrire" },
+        "has_oracle_rownum":           { "score": 1, "reason": "ROWNUM → pandas head()" },
+        "has_oracle_to_date":          { "score": 1, "reason": "TO_DATE → pd.to_datetime()" },
+        "has_subquery":                { "score": 3, "reason": "Sous-requête complexe" },
+        "has_union":                   { "score": 3, "reason": "UNION/UNION ALL dans SQL" },
+        "has_analytical_functions":    { "score": 4, "reason": "ROW_NUMBER/RANK/LAG/LEAD" },
+        "select_distinct":             { "score": 1, "reason": "DISTINCT → drop_duplicates()" }
+      }
+    },
+    "Lookup Procedure": {
+      "base_score": 1,
+      "modifiers": {
+        "lookup_connected_static":     { "score": 0, "reason": "Simple merge — pattern standard" },
+        "lookup_connected_dynamic":    { "score": 3, "reason": "Cache dynamique — logique complexe" },
+        "lookup_unconnected":          { "score": 2, "reason": "Appel explicite — pattern différent" },
+        "multiple_match_error":        { "score": 2, "reason": "Politique d'erreur à implémenter" },
+        "multiple_match_last_row":     { "score": 1, "reason": "sort + tail() requis" },
+        "cache_persistent":            { "score": 2, "reason": "Gestion de cache à simuler" },
+        "cross_db_lookup":             { "score": 3, "reason": "Sources hétérogènes" }
+      }
+    },
+    "Expression": {
+      "base_score": 1,
+      "modifiers": {
+        "computed_fields_1_3":         { "score": 0, "reason": "1-3 champs — standard" },
+        "computed_fields_4_8":         { "score": 1, "reason": "4-8 champs — modéré" },
+        "computed_fields_9_plus":      { "score": 2, "reason": "9+ champs — volumétrie" },
+        "has_datediff":                { "score": 1, "reason": "DATEDIFF → formule vectorisée" },
+        "has_iif_nested":              { "score": 2, "reason": "IIF imbriqués → np.where chaîné" },
+        "has_decode_complex":          { "score": 2, "reason": "DECODE multi-valeurs → map()" },
+        "has_custom_function":         { "score": 4, "reason": "Fonction custom — non mappable" },
+        "has_java_expression":         { "score": 5, "reason": "Java embarqué — CRITICAL" },
+        "has_string_aggregation":      { "score": 2, "reason": "Agrégation string → groupby" }
+      }
+    },
+    "Filter": {
+      "base_score": 0,
+      "modifiers": {
+        "simple_condition":            { "score": 0, "reason": "Condition simple — masque booléen" },
+        "compound_condition":          { "score": 1, "reason": "AND/OR multiples" },
+        "subquery_condition":          { "score": 3, "reason": "Sous-requête dans filtre" }
+      }
+    },
+    "Aggregator": {
+      "base_score": 2,
+      "modifiers": {
+        "simple_groupby":              { "score": 0, "reason": "GROUP BY standard → groupby()" },
+        "has_sorted_input":            { "score": 1, "reason": "Sorted input requis" },
+        "has_running_total":           { "score": 2, "reason": "Running total → cumsum()" },
+        "has_median":                  { "score": 1, "reason": "MEDIAN → quantile(0.5)" }
+      }
+    },
+    "Joiner": {
+      "base_score": 2,
+      "modifiers": {
+        "inner_join":                  { "score": 0, "reason": "INNER JOIN → merge(how='inner')" },
+        "outer_join":                  { "score": 1, "reason": "OUTER JOIN → merge(how='outer')" },
+        "not_equal_join":              { "score": 3, "reason": "Jointure inégalité — complexe" },
+        "cross_join":                  { "score": 3, "reason": "Produit cartésien — volumétrie" },
+        "heterogeneous_sources":       { "score": 2, "reason": "Sources de types différents" }
+      }
+    },
+    "Sorter": {
+      "base_score": 1,
+      "modifiers": {
+        "simple_sort":                 { "score": 0, "reason": "sort_values() standard" },
+        "case_insensitive":            { "score": 1, "reason": "Sort insensible à la casse" },
+        "distinct":                    { "score": 1, "reason": "Sort + distinct" }
+      }
+    },
+    "Router": {
+      "base_score": 2,
+      "modifiers": {
+        "groups_1_3":                  { "score": 0, "reason": "1-3 groupes — np.where" },
+        "groups_4_plus":               { "score": 2, "reason": "4+ groupes — logique conditionnelle" }
+      }
+    },
+    "Sequence Generator": {
+      "base_score": 1,
+      "modifiers": {}
+    },
+    "Java Transformation": {
+      "base_score": 8,
+      "modifiers": {
+        "any":                         { "score": 0, "reason": "CRITICAL — réécriture complète obligatoire" }
+      }
+    },
+    "Custom Transformation": {
+      "base_score": 6,
+      "modifiers": {}
+    },
+    "Normalizer": {
+      "base_score": 3,
+      "modifiers": {}
+    },
+    "XML Source Qualifier": {
+      "base_score": 3,
+      "modifiers": {}
+    },
+    "Web Services": {
+      "base_score": 5,
+      "modifiers": {}
+    }
+  },
+
+  "global_modifiers": {
+    "has_parameter_file":              { "score": 1, "reason": "Variables de session à injecter" },
+    "transformation_count_5_10":      { "score": 1, "reason": "Workflow de taille moyenne" },
+    "transformation_count_11_plus":   { "score": 2, "reason": "Workflow complexe" },
+    "has_multiple_targets":           { "score": 2, "reason": "Cibles multiples — logique de routage" },
+    "has_error_handling":             { "score": 1, "reason": "Gestion d'erreur custom" },
+    "has_transaction_control":        { "score": 3, "reason": "Contrôle transactionnel" }
+  },
+
+  "thresholds": {
+    "LOW":      { "min": 0,  "max": 3,  "label": "LOW",      "migration_days": "0.5",   "auto_conversion": true  },
+    "MEDIUM":   { "min": 4,  "max": 8,  "label": "MEDIUM",   "migration_days": "1-2",   "auto_conversion": true  },
+    "HIGH":     { "min": 9,  "max": 14, "label": "HIGH",     "migration_days": "3-5",   "auto_conversion": false },
+    "CRITICAL": { "min": 15, "max": 99, "label": "CRITICAL", "migration_days": ">5",    "auto_conversion": false }
+  },
+
+  "routing_rules": {
+    "python":     "Score total <= 8 ET pas de Java ET pas de Custom ET volume < 5M lignes estimé",
+    "pyspark":    "Score total 9-14 OU volume >= 5M lignes OU Aggregator/Joiner complexe",
+    "databricks": "Score total >= 15 OU Java Transformation OU Custom Transformation",
+    "human":      "Score total CRITICAL OU has_java_transformation=true OU has_custom_function=true"
+  },
+
+  "per_transformation_flag_logic": {
+    "LOW":      "score_transformation <= 2",
+    "MEDIUM":   "score_transformation 3-5",
+    "HIGH":     "score_transformation 6-8",
+    "CRITICAL": "score_transformation >= 9 OU Java OU Custom"
+  }
+}
