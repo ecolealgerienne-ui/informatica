@@ -82,6 +82,39 @@ def _generate_fixture_csv(columns: list[str], tmp_dir: Path, name: str) -> str:
     return str(path)
 
 
+def _fields_from_canonical(canonical: dict) -> tuple[list[str], dict[str, list[str]]]:
+    """
+    Extract field names from canonical JSON (real structure from parser_agent).
+    Returns:
+      - source_cols : OUTPUT ports of the first Source Qualifier
+      - lkp_cols    : {table_name_upper: [port names]} for Lookup Procedures
+    """
+    source_cols: list[str] = []
+    lkp_cols: dict[str, list[str]] = {}
+
+    for t in canonical.get("transformations", []):
+        t_type = t.get("type", "")
+        ports  = [p["name"] for p in t.get("ports", []) if p.get("name")]
+
+        if t_type == "Source Qualifier" and not source_cols:
+            source_cols = ports
+
+        elif t_type == "Lookup Procedure":
+            ref = t.get("ref_table", t.get("name", "")).upper()
+            lkp_cols[ref] = ports
+            # Also index by transformation name
+            lkp_cols[t.get("name", "").upper()] = ports
+
+    # Also include SOURCE table fields (structural, not just SQ ports)
+    if not source_cols:
+        for src in canonical.get("sources", []):
+            source_cols = [f["name"] for f in src.get("fields", []) if f.get("name")]
+            if source_cols:
+                break
+
+    return source_cols, lkp_cols
+
+
 def _build_fixture_env(
     code_path: str,
     canonical: dict,
@@ -92,19 +125,19 @@ def _build_fixture_env(
     Build env var dict for executing the batch.
     For each *_FILE env var found in the script:
       1. Check tests/{workflow_name}_{var_lower}.csv  — use if exists (golden)
-      2. Otherwise generate synthetic CSV from canonical JSON source fields
+      2. Otherwise generate synthetic CSV from canonical JSON port names
     """
     file_vars = _extract_file_env_vars(code_path)
     env_map   = {"OUTPUT_FILE": str(ACTUAL_PATH), "BATCH_DATE": "2026-01-01"}
 
-    # Collect all field names from canonical JSON sources + lookups
-    all_source_fields: list[str] = []
-    for src in canonical.get("source_qualifiers", {}).values():
-        all_source_fields.extend(src.get("output_fields", []))
-    for lkp in canonical.get("lookup_tables", {}).values():
-        all_source_fields.extend(lkp.get("output_fields", []))
-
-    all_source_fields = list(dict.fromkeys(all_source_fields))  # dedupe preserving order
+    source_cols, lkp_cols = _fields_from_canonical(canonical)
+    # Fallback: all ports from all transformations
+    all_cols = list(dict.fromkeys(
+        p["name"]
+        for t in canonical.get("transformations", [])
+        for p in t.get("ports", [])
+        if p.get("name")
+    )) or ["ID", "VALUE", "STATUS", "DATE_MODIFIED"]
 
     for var in file_vars:
         if var == "OUTPUT_FILE":
@@ -117,8 +150,15 @@ def _build_fixture_env(
             env_map[var] = str(golden)
             print(f"[QA]   {var} → {golden} (golden)")
         else:
-            # Generate synthetic CSV: use source fields if we have them, else generic
-            cols = all_source_fields if all_source_fields else ["ID", "VALUE", "STATUS", "DATE_MODIFIED"]
+            # Pick columns: SOURCE_FILE → SQ ports, DIM_*/LKP_* → lookup ports, else all
+            var_up = var.upper()
+            if var_up == "SOURCE_FILE":
+                cols = source_cols or all_cols
+            else:
+                # Try to match lookup by name fragment (e.g. DIM_ACCOUNTS_FILE → DIM_ACCOUNTS)
+                table_hint = var_up.replace("_FILE", "")
+                cols = lkp_cols.get(table_hint, all_cols)
+
             path = _generate_fixture_csv(cols, tmp_dir, f"fixture_{var.lower()}")
             env_map[var] = path
             print(f"[QA]   {var} → {path} (synthetic, {len(cols)} cols)")
