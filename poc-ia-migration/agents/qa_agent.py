@@ -215,17 +215,10 @@ def _build_fixture_env(
             env_map[var] = str(golden)
             print(f"[QA]   {var} → {golden} (golden)")
         else:
-            # Column selection: script analysis → canonical → fallback
-            if var in script_cols and script_cols[var]:
-                cols = script_cols[var]
-                src  = "script-inferred"
-            elif var == "SOURCE_FILE" and source_cols:
-                cols = source_cols
-                src  = "canonical-source"
-            else:
-                table_hint = var.upper().replace("_FILE", "")
-                cols = lkp_cols.get(table_hint, all_cols)
-                src  = "canonical-lookup" if table_hint in lkp_cols else "fallback-all"
+            # Column selection: superset of all columns so any read_csv works
+            # (script may pass file path via function param, not env var directly)
+            cols = all_cols
+            src  = "superset-all"
 
             path = _generate_fixture_csv(cols, tmp_dir, f"fixture_{var.lower()}")
             env_map[var] = path
