@@ -479,7 +479,8 @@ def merge_results(structural: dict, llm: dict, sql_analyses: dict = None) -> dic
 
 class ParserAgent:
     def __init__(self, xml_path: str):
-        self.xml_path = xml_path
+        self.xml_path  = xml_path
+        self.workflow_name = Path(xml_path).stem  # e.g. "wf_products_dim"
 
     def run(self) -> dict:
         print(f"[Parser] Parsing XML: {self.xml_path}")
@@ -492,13 +493,13 @@ class ParserAgent:
         canonical = merge_results(structural, llm_analysis, sql_analyses)
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        output_path = OUTPUT_DIR / "wf_clients_dim.json"
+        output_path = OUTPUT_DIR / f"{self.workflow_name}.json"
         output_path.write_text(
             json.dumps(canonical, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
         print(f"[Parser] Canonical JSON written to {output_path}")
-        return canonical
+        return canonical, str(output_path)
 
 
 # ---------------------------------------------------------------------------
@@ -508,7 +509,8 @@ class ParserAgent:
 if __name__ == "__main__":
     xml_file = sys.argv[1] if len(sys.argv) > 1 else "input/wf_clients_dim.xml"
     agent = ParserAgent(xml_file)
-    result = agent.run()
+    result, out_path = agent.run()
     print(f"\n[Parser] routing → {result['routing_decision'].get('target_platform')}")
     print(f"[Parser] feasibility → {result['routing_decision'].get('auto_conversion_feasibility')}")
     print(f"[Parser] transformations analysed: {len(result['transformations'])}")
+    print(f"[Parser] output → {out_path}")

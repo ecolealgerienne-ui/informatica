@@ -122,8 +122,9 @@ def clean_code(raw: str) -> str:
 
 
 class CodeGenAgent:
-    def __init__(self, canonical: dict):
-        self.canonical = canonical
+    def __init__(self, canonical: dict, workflow_name: str = "wf_workflow"):
+        self.canonical     = canonical
+        self.workflow_name = workflow_name
 
     def run(self) -> str:
         rag_map       = json.loads(RAG_MAP_PATH.read_text(encoding="utf-8"))
@@ -142,16 +143,18 @@ class CodeGenAgent:
         code = clean_code(raw)
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        output_path = OUTPUT_DIR / "wf_clients_dim.py"
+        output_path = OUTPUT_DIR / f"{self.workflow_name}.py"
         output_path.write_text(code, encoding="utf-8")
         print(f"[CodeGen] Code written to {output_path} ({len(code.splitlines())} lines)")
-        return code
+        return code, str(output_path)
 
 
 if __name__ == "__main__":
     json_path = sys.argv[1] if len(sys.argv) > 1 else str(CANONICAL_JSON_PATH)
     canonical = json.loads(Path(json_path).read_text(encoding="utf-8"))
-    agent = CodeGenAgent(canonical)
-    code  = agent.run()
-    print(f"\n[CodeGen] Preview (first 20 lines):")
+    wf_name   = Path(json_path).stem
+    agent = CodeGenAgent(canonical, workflow_name=wf_name)
+    code, out_path = agent.run()
+    print(f"\n[CodeGen] Output: {out_path}")
+    print(f"[CodeGen] Preview (first 20 lines):")
     print("\n".join(code.splitlines()[:20]))
