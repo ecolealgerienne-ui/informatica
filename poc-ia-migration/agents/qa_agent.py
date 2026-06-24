@@ -632,7 +632,19 @@ class QAAgent:
 if __name__ == "__main__":
     code_path     = sys.argv[1] if len(sys.argv) > 1 else str(INPUT_CODE_PATH)
     expected_path = sys.argv[2] if len(sys.argv) > 2 else str(EXPECTED_PATH)
-    agent  = QAAgent(code_path, expected_path)
+
+    # Derive workflow_name from code path stem (e.g. wf_accounts_scd2_documented → wf_accounts_scd2)
+    wf_name = Path(code_path).stem.replace("_documented", "").replace("_fixed", "")
+
+    # Auto-load canonical JSON if it exists alongside the code outputs
+    canonical_path = Path(f"output/01_canonical_json/{wf_name}.json")
+    canonical = json.loads(canonical_path.read_text(encoding="utf-8")) if canonical_path.exists() else None
+    if canonical:
+        print(f"[QA] Loaded canonical JSON: {canonical_path}")
+    else:
+        print(f"[QA] No canonical JSON found at {canonical_path} — using legacy fixture mode")
+
+    agent  = QAAgent(code_path, expected_path, canonical=canonical, workflow_name=wf_name)
     result = agent.run()
     print(f"\n[QA] Overall verdict  : {result['overall_verdict']}")
     print(f"[QA] Anomalies count  : {result['anomalies_count']}")
