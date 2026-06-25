@@ -200,9 +200,11 @@ def run():
     section("STEP 5/5 — QA Agent (data diff + HTML report)")
     t = time.time()
 
+    # Workflow-specific golden file only — no cross-workflow fallback
+    # If not found, QA runs in execution-only mode (validates script runs without crash)
     expected_file = f"tests/{workflow_name}_expected.csv"
     if not Path(expected_file).exists():
-        expected_file = "tests/expected_output.csv"
+        expected_file = f"tests/{workflow_name}_expected.csv"  # keep non-existent path → execution-only
 
     try:
         qa        = QAAgent(
