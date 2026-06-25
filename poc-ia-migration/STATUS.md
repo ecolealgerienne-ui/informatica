@@ -781,11 +781,50 @@ Fallback : si JSON parse échoue → code original retourné inchangé (pipeline
 
 ---
 
+---
+
+### Étape 17 — Smoke test pipeline + corrections bugs (`fd29e8f`, `4846f6e`)
+
+**Objectif** : Valider le pipeline complet avec les optimisations Semaines 1-3 à coût minimal.  
+**XML** : `input/wf_smoke_test.xml` — 3 champs source, 1 Expression, 2 champs target.
+
+#### Bugs découverts et corrigés
+
+| Bug | Cause | Fix | Commit |
+|---|---|---|---|
+| `unknown option '--max-tokens'` | Flag Anthropic API, absent du CLI `claude -p` | Retiré de codegen, fixer, documenter | `4846f6e` |
+| `None of ['CLIENT_ID'] are in the columns` | QA tombait en fallback sur `tests/expected_output.csv` (golden data wf_clients_dim) pour tout workflow sans golden data spécifique | Suppression du fallback cross-workflow — execution-only si pas de golden data | `fd29e8f` |
+
+#### Résultats du smoke test (run complet)
+
+| Étape | Durée | Résultat |
+|---|---|---|
+| Parser | 30.5s | complexity=LOW, score=2, platform=python |
+| CodeGen | 62.5s | 114 lignes, RAG −61.7% (8 608 / 22 465 chars) |
+| Fixer | 45.4s | FIXED / 1 cycle |
+| Documenter | 63.3s | 72 lignes explication + 5 docstrings injectées via AST |
+| QA | 0.3s | PASS — 5→5 lignes, 0 anomalie, 0 appel LLM |
+| **Total** | **~3min** | ✅ PASS |
+
+#### Optimisations validées en conditions réelles
+
+| Semaine | Optimisation | Preuve log |
+|---|---|---|
+| 2 | RAG sélectif | `8 608 / 22 465 chars (−61.7%)` |
+| 1 | BATCH_DATE 2023-01-01 | `rows_in=5 rows_out=5` |
+| 3 | Docstrings JSON + AST inject | `Injecting 5 docstrings via AST` |
+| pre | Skip LLM QA sur 0 anomalie | `No anomalies — skipping LLM call` |
+| pre | Checkpoint --from-step | Steps 1-4 skipés en 0s sur relance |
+
+**Tokens estimés** : ~3 000 (vs ~21 000 sur wf_clients_dim — **−86%** sur ce workflow minimal)
+
+---
+
 ### Prochaine action immédiate
 
 | Priorité | Tâche |
 |---|---|
-| P0 | Relancer la campagne de tests (wf_clients_dim en premier pour valider les gains réels) |
+| P0 | Relancer wf_clients_dim avec les optimisations pour mesurer les gains réels vs baseline |
 | P0 | Terminer les 5 XMLs restants : wf_products_dim, wf_sales_monthly, wf_unconnected_lkp, wf_xml_normalizer, wf_transactions_hist |
 | P1 | Référencer `etl_utils.py` dans les prompts CodeGen + RAG Base |
 | P2 | Implémenter LLM-as-a-Judge (6ème agent, Phase 2) |

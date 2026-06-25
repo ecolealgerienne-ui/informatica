@@ -2,7 +2,7 @@
 
 **Branche** : `claude/laughing-curie-04rzxm`  
 **Période tests** : Juin 2026  
-**Pipeline version** : checkpoint + CRASH-safe QA + fixtures synthétiques
+**Pipeline version** : checkpoint + CRASH-safe QA + fixtures synthétiques + optimisations Semaines 1-3
 
 ---
 
@@ -10,6 +10,7 @@
 
 | # | Workflow | Difficulté | Parser | CodeGen | Fixer | Documenter | QA Verdict | Notes |
 |---|---|---|---|---|---|---|---|---|
+| 0 | wf_smoke_test | SMOKE | ✅ | ✅ | ✅ | ✅ | ✅ PASS | Validation optimisations Sem 1-3 — execution-only QA |
 | 1 | wf_clients_dim | LOW | ✅ | ✅ | ✅ | ✅ | ✅ PASS | Workflow de référence, golden data |
 | 2 | wf_products_dim | LOW | — | — | — | — | — | À tester |
 | 3 | wf_orders_fact | MEDIUM | ✅ | ✅ | ✅ | ✅ | ⚠️ FAIL* | Script OK, FAIL artificiel (BATCH_DATE) |
@@ -24,6 +25,44 @@
 ---
 
 ## Détail par workflow
+
+### 0. wf_smoke_test — SMOKE ✅ PASS
+
+**Objectif** : Valider le pipeline complet avec les optimisations Semaines 1-3, à coût minimal.
+
+**Patterns Informatica testés**
+- Source Qualifier avec filtre DATE_MAJ >= BATCH_DATE
+- Expression : LTRIM/RTRIM/UPPER sur une colonne NOM
+
+**Métriques pipeline**
+
+| Étape | Durée | Résultat | Gain optimisation |
+|---|---|---|---|
+| Parser | 30.5s | complexity=LOW, score=2, platform=python | — |
+| CodeGen | 62.5s | 114 lignes générées | RAG −61.7% (8 608 / 22 465 chars) |
+| Fixer | 45.4s | FIXED / 1 cycle | mode=full-script (Sonnet) |
+| Documenter | 63.3s | 72 lignes explication, 52 lignes annotées | AST inject 5 docstrings |
+| QA | 0.3s | PASS — execution-only, 5→5 lignes, 0 anomalie | BATCH_DATE=2023, 0 appel LLM |
+
+**Optimisations validées**
+
+| Optimisation | Preuve |
+|---|---|
+| RAG sélectif (Semaine 2) | `8 608 / 22 465 chars (−61.7%)` — log CodeGen |
+| BATCH_DATE 2023-01-01 (Semaine 1) | `rows_in=5 rows_out=5` — filtre date passé |
+| Docstrings JSON + AST inject (Semaine 3) | `Injecting 5 docstrings via AST` — log Documenter |
+| Skip LLM QA si 0 anomalie (pre-existant) | `No anomalies — skipping LLM call` |
+| Checkpoint --from-step (pre-existant) | Steps 1-4 skipés sur relance, QA en 0.3s |
+| QA execution-only sans golden data | `No expected file — execution-only QA` |
+
+**Bugs corrigés pendant ce run**
+- `--max-tokens` flag invalide sur CLI → retiré de tous les agents
+- QA fallback `expected_output.csv` cross-workflow → supprimé, execution-only si pas de golden data
+
+**Données de test** : fixtures synthétiques (4 colonnes, 5 lignes)  
+**Verdict** : ✅ Pipeline complet opérationnel avec toutes les optimisations Semaines 1-3
+
+---
 
 ### 1. wf_clients_dim — LOW ✅ PASS
 
