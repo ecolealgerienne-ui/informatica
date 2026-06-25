@@ -86,7 +86,7 @@ MODEL = "claude-sonnet-4-6"  # code generation — powerful model required for q
 def call_claude(system: str, user: str) -> str:
     prompt = f"SYSTEM:\n{system}\n\nUSER:\n{user}"
     result = subprocess.run(
-        ["claude", "-p", "--model", MODEL, "--output-format", "text", "--max-tokens", "4000"],
+        ["claude", "-p", "--model", MODEL, "--output-format", "text"],
         input=prompt,
         capture_output=True,
         text=True,

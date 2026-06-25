@@ -168,8 +168,7 @@ MODEL_CYCLES  = "claude-haiku-4-5-20251001"  # cycles 2-3: minor corrections, Ha
 def call_claude(prompt: str, cycle: int = 1) -> str:
     model = MODEL_CYCLE1 if cycle == 1 else MODEL_CYCLES
     result = subprocess.run(
-        ["claude", "-p", "--model", model, "--output-format", "text",
-         "--max-tokens", "4000" if cycle == 1 else "2000"],
+        ["claude", "-p", "--model", model, "--output-format", "text"],
         input=prompt,
         capture_output=True,
         text=True,

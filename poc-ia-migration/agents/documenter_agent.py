@@ -134,8 +134,7 @@ MODEL = "claude-haiku-4-5-20251001"  # structured reformulation — lightweight 
 
 def call_claude(prompt: str, timeout: int = 300, max_tokens: int = 3000) -> str:
     result = subprocess.run(
-        ["claude", "-p", "--model", MODEL, "--output-format", "text",
-         "--max-tokens", str(max_tokens)],
+        ["claude", "-p", "--model", MODEL, "--output-format", "text"],
         input=prompt,
         capture_output=True,
         text=True,
