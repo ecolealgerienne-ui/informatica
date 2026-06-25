@@ -127,44 +127,41 @@ def _fields_from_canonical(canonical: dict) -> tuple[list[str], dict[str, list[s
     """
     Extract field names from canonical JSON (real structure from parser_agent).
     Returns:
-      - source_cols : fields of the first SOURCE table (structural, not SQ ports)
-      - lkp_cols    : {table_name_upper: [field names]} for lookup/dimension tables
-                      Uses TARGET table fields (actual DB columns) not transformation ports
+      - source_cols     : fields of the first (main) SOURCE table
+      - cols_by_table   : {TABLE_NAME_UPPER: [field names]} for ALL source tables
+                          Built directly from XML SOURCE definitions — exact DB columns,
+                          not transformation ports (avoids column name collisions on merge)
     """
     source_cols: list[str] = []
-    lkp_cols: dict[str, list[str]] = {}
+    cols_by_table: dict[str, list[str]] = {}
 
-    # SOURCE table fields → use for SOURCE_FILE fixture
+    # ALL source tables (main + lookup sources like REF_STATUT, DIM_*)
     for src in canonical.get("sources", []):
+        name = src.get("name", "").upper()
         cols = [f["name"] for f in src.get("fields", []) if f.get("name")]
         if cols:
-            source_cols = cols
-            break
+            cols_by_table[name] = cols
+            if not source_cols:
+                source_cols = cols  # first source = main source
 
-    # TARGET table fields → use for DIM_*/LKP_* fixtures (real table columns)
+    # TARGET table fields as additional reference (covers DIM_ tables not in sources)
     for tgt in canonical.get("targets", []):
         name = tgt.get("name", "").upper()
         cols = [f["name"] for f in tgt.get("fields", []) if f.get("name")]
-        if name and cols:
-            lkp_cols[name] = cols
+        if name and cols and name not in cols_by_table:
+            cols_by_table[name] = cols
 
-    # Also index lookup ref_table names from transformation metadata
+    # Lookup transformation ref_table → only as fallback if not already in sources/targets
     for t in canonical.get("transformations", []):
         if t.get("type") == "Lookup Procedure":
             ref = t.get("ref_table", "").upper()
-            # Only add if not already covered by a TARGET table
-            if ref and ref not in lkp_cols:
-                # Use output ports (exclude INPUT ports) as best approximation
+            if ref and ref not in cols_by_table:
                 output_ports = [
                     p["name"] for p in t.get("ports", [])
                     if p.get("name") and p.get("port_type", "").upper() != "INPUT"
                 ]
                 if output_ports:
-                    lkp_cols[ref] = output_ports
-            # Index by transformation name too
-            t_name = t.get("name", "").upper()
-            if t_name and t_name not in lkp_cols and ref in lkp_cols:
-                lkp_cols[t_name] = lkp_cols[ref]
+                    cols_by_table[ref] = output_ports
 
     # Fallback: SQ output ports if no SOURCE table fields found
     if not source_cols:
@@ -174,7 +171,7 @@ def _fields_from_canonical(canonical: dict) -> tuple[list[str], dict[str, list[s
                 if source_cols:
                     break
 
-    return source_cols, lkp_cols
+    return source_cols, cols_by_table
 
 
 def _build_fixture_env(
@@ -217,10 +214,25 @@ def _build_fixture_env(
             env_map[var] = str(golden)
             print(f"[QA]   {var} → {golden} (golden)")
         else:
-            # Column selection: superset of all columns so any read_csv works
-            # (script may pass file path via function param, not env var directly)
-            cols = all_cols
-            src  = "superset-all"
+            # Column selection strategy (priority order):
+            # 1. Columns inferred by static analysis of the generated script
+            # 2. Columns from the SOURCE table in canonical JSON matching this env var
+            #    e.g. REF_STATUT_FILE → canonical sources["REF_STATUT"].fields
+            #    This prevents column name collisions on merge (e.g. LIBELLE in both tables)
+            # 3. Superset of all ports (last resort)
+            table_name = var.replace("_FILE", "").upper()  # e.g. REF_STATUT_FILE → REF_STATUT
+            if var in script_cols:
+                cols = script_cols[var]
+                src  = "script-analysis"
+            elif table_name in lkp_cols:
+                cols = lkp_cols[table_name]
+                src  = f"source-schema({table_name})"
+            elif var == "SOURCE_FILE":
+                cols = source_cols or all_cols
+                src  = "source-schema(main)" if source_cols else "superset-all"
+            else:
+                cols = all_cols
+                src  = "superset-all"
 
             unique_cols = list(dict.fromkeys(cols))
             path = _generate_fixture_csv(unique_cols, tmp_dir, f"fixture_{var.lower()}")

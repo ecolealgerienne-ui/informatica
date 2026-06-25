@@ -2,7 +2,7 @@
 
 **Branche** : `claude/laughing-curie-04rzxm`  
 **Période tests** : Juin 2026  
-**Pipeline version** : checkpoint + CRASH-safe QA + fixtures synthétiques + optimisations Semaines 1-3
+**Pipeline version** : checkpoint + CRASH-safe QA + fixtures synthétiques + optimisations Semaines 1-3 + fix fixtures par table source
 
 ---
 
@@ -11,7 +11,7 @@
 | # | Workflow | Difficulté | Parser | CodeGen | Fixer | Documenter | QA Verdict | Notes |
 |---|---|---|---|---|---|---|---|---|
 | 0 | wf_smoke_test | SMOKE | ✅ | ✅ | ✅ | ✅ | ✅ PASS | Validation optimisations Sem 1-3 — execution-only QA |
-| 1 | wf_clients_dim | LOW | ✅ | ✅ | ✅ | ✅ | ✅ PASS | Workflow de référence, golden data |
+| 1 | wf_clients_dim | LOW | ✅ | ✅ | ✅ | ✅ | ✅ PASS (Run#1-3) / ⚠️ CRASH (Run#4) | Run#4 : bug fixture LIBELLE — voir §1b |
 | 2 | wf_products_dim | LOW | — | — | — | — | — | À tester |
 | 3 | wf_orders_fact | MEDIUM | ✅ | ✅ | ✅ | ✅ | ⚠️ FAIL* | Script OK, FAIL artificiel (BATCH_DATE) |
 | 4 | wf_sales_monthly | MEDIUM | — | — | — | — | — | À tester |
@@ -84,6 +84,58 @@
 
 **Données de test** : golden dataset fourni (`tests/golden_dataset.csv` + `tests/ref_statut.csv`)  
 **Verdict** : ✅ Migration validée — toutes les expressions traduites correctement
+
+---
+
+### 1b. wf_clients_dim — Run #4 (avec optimisations Semaines 1-3) ⚠️ CRASH → BUG IDENTIFIÉ ET CORRIGÉ
+
+**Objectif** : Mesurer les gains réels des optimisations Semaines 1-3 (`--force` depuis baseline Run #3).
+
+**Comparaison Run #3 (baseline) vs Run #4 (optimisé)**
+
+| Étape | Run #3 (avant) | Run #4 (après) | Gain |
+|---|---|---|---|
+| Parser | ~70s | 36.6s | −33.4s (−48%) |
+| CodeGen | ~140s | 24.1s | −115.9s (−83%) |
+| Fixer | ~50s | 19.6s | −30.4s (−61%) |
+| Documenter | ~130s | 65.0s | −65.0s (−50%) |
+| QA | ~30s | 0.3s | −29.7s (−99%) |
+| **TOTAL** | **~211.9s** | **145.7s** | **−66.2s (−31%)** |
+
+**Optimisations validées**
+
+| Optimisation | Preuve Run #4 |
+|---|---|
+| RAG sélectif (Semaine 2) | `13 545 / 22 465 chars (−39.7%)` |
+| Haiku cycles 2-3 Fixer (Semaine 1) | 1 seul cycle Sonnet — Fixer 19.6s |
+| AST docstrings JSON (Semaine 3) | `8 docstrings injected via AST` |
+| Documenter sans canonical JSON (Semaine 2) | Durée réduite de 50% |
+
+> Note : RAG −39.7% (vs −61.7% sur smoke_test) car wf_clients_dim a plus de types de transformations → plus de sections RAG sélectionnées. Normal et attendu.
+
+**CRASH QA — Cause identifiée**
+
+```
+KeyError: 'LIBELLE'
+  → lookup_ref_statut(), après merge clients × ref_statut
+```
+
+**Analyse :**
+- Les fixtures synthétiques utilisaient le **superset de TOUS les ports** de TOUTES les transformations pour chaque fichier
+- `SOURCE_FILE` (clients) contenait `LIBELLE` dans son fixture (port issu de LKP_STATUT)
+- `REF_STATUT_FILE` contenait aussi `LIBELLE`
+- Après `merge(clients, ref_statut, on="STATUT_CODE")`, pandas suffixe les doublons → `LIBELLE_x` / `LIBELLE_y`
+- Script accède à `merged["LIBELLE"]` → `KeyError`
+
+**Fix appliqué dans `qa_agent.py`**
+
+Chaque fixture utilise maintenant les colonnes de **sa propre table SOURCE dans le XML** :
+- `SOURCE_FILE` → colonnes de `canonical["sources"][0]` (table CLIENTS)
+- `REF_STATUT_FILE` → colonnes de `canonical["sources"]["REF_STATUT"]` : `[STATUT_CODE, LIBELLE, LIBELLE_COURT]`
+
+Ces colonnes sont connues dès le départ dans le XML — le parser les extrait dans `canonical["sources"]`. Pas de collision possible après le fix.
+
+**Verdict Run #4** : CRASH dû au bug fixture, **pas aux optimisations** (qui sont toutes validées). Fix committé.
 
 ---
 
