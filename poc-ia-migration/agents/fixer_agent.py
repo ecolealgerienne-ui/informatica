@@ -74,11 +74,31 @@ def check_calc_age_pattern(code: str) -> tuple[bool, str]:
     return True, ""
 
 
+def check_empty_guard(code: str) -> tuple[bool, str]:
+    """Detect missing 'if df.empty: return' guard after extract step.
+
+    Without this guard, any downstream call (lookup, pd.to_numeric, merge)
+    crashes when BATCH_DATE filter eliminates all source rows — the SCD2 bug.
+    """
+    if "def extract(" not in code:
+        return True, ""
+    has_guard = ".empty" in code
+    if not has_guard:
+        return False, (
+            "Missing empty DataFrame guard: 'if df.empty: return' must appear "
+            "in transform() or main() right after the extract() call. "
+            "Without it, any downstream operation (lookup, pd.to_numeric, merge, SCD2 logic) "
+            "will crash when the BATCH_DATE filter produces 0 rows."
+        )
+    return True, ""
+
+
 def run_static_checks(code: str) -> dict:
     syntax_ok, syntax_err          = check_syntax(code)
     funcs_ok, missing_funcs        = check_mandatory_functions(code) if syntax_ok else (False, [])
     forbidden_hits                  = check_forbidden_patterns(code) if syntax_ok else []
     age_ok, age_err                = check_calc_age_pattern(code) if syntax_ok else (False, "")
+    empty_ok, empty_err            = check_empty_guard(code) if syntax_ok else (False, "")
 
     issues = []
     if not syntax_ok:
@@ -89,12 +109,15 @@ def run_static_checks(code: str) -> dict:
         issues.append({"type": "FORBIDDEN_PATTERN", "detail": hit})
     if not age_ok:
         issues.append({"type": "EXPRESSION_TRANSLATION", "field": "AGE", "detail": age_err})
+    if not empty_ok:
+        issues.append({"type": "MISSING_EMPTY_GUARD", "detail": empty_err})
 
     return {
         "syntax_valid":      syntax_ok,
         "functions_ok":      funcs_ok,
         "forbidden_hits":    forbidden_hits,
         "age_pattern_ok":    age_ok,
+        "empty_guard_ok":    empty_ok,
         "issues":            issues,
         "has_issues":        bool(issues),
     }
@@ -133,7 +156,7 @@ NO prose, NO explanations outside the block. Start with ```python, end with ```.
 3. String ops: MUST use .str.strip()/.str.upper()/.str.lower() chains (NOT apply/lambda)
 4. Filter: MUST be a boolean mask df[condition] (NOT loop)
 5. Load: MUST write to .tmp then os.replace() (atomic swap)
-6. if df.empty: return — MUST be present after every extract step
+6. EMPTY GUARD (CRITICAL): `if df.empty: return` MUST appear in main() or transform() immediately after calling extract(). This prevents crashes when BATCH_DATE filter produces 0 rows. Every downstream call (lookup, pd.to_numeric, merge, SCD2 split) will crash on an empty DataFrame without this guard. Example: `df = extract(); if df.empty: print("[WARNING] No rows extracted"); return`
 7. After a lookup merge, output columns renamed by the lookup MUST be accessed via their post-merge name (check for _x/_y suffixes if a column exists in both DataFrames)
 
 Return the complete corrected script inside a ```python block.
@@ -300,15 +323,16 @@ class FixerAgent:
         output_path.write_text(current_code, encoding="utf-8")
 
         report = {
-            "input_file":    str(INPUT_CODE_PATH),
-            "output_file":   str(output_path),
-            "timestamp":     datetime.now(timezone.utc).isoformat(),
-            "cycles_used":   cycles_used,
-            "status":        status,
-            "syntax_valid":  final_static["syntax_valid"],
-            "rag_compliant": not bool(final_static["forbidden_hits"]),
+            "input_file":     str(INPUT_CODE_PATH),
+            "output_file":    str(output_path),
+            "timestamp":      datetime.now(timezone.utc).isoformat(),
+            "cycles_used":    cycles_used,
+            "status":         status,
+            "syntax_valid":   final_static["syntax_valid"],
+            "rag_compliant":  not bool(final_static["forbidden_hits"]),
             "age_pattern_ok": final_static["age_pattern_ok"],
-            "corrections":   corrections,
+            "empty_guard_ok": final_static["empty_guard_ok"],
+            "corrections":    corrections,
             "human_escalations": final_static["issues"] if status == "ESCALATE" else [],
         }
 
