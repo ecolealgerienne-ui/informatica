@@ -578,11 +578,97 @@ python pipeline/run_pipeline.py input/wf_transactions_hist.xml
 
 ---
 
+### Étape 13 — Document d'optimisation + analyse expert (Juin 2026)
+
+**Contexte** : Après la campagne de tests, deux rapports d'experts externes ont validé et enrichi nos propositions d'optimisation. Un document de référence a été produit, utilisable sur tout pipeline agentique LLM.
+
+#### Rapport expert 1 — Optimisation tokens pipeline (`rapport_optimisation_pipeline_ia.md`)
+
+Validation des propositions P0–P2 et ajout de stratégies LLMOps avancées P3–P6 :
+
+| Priorité | Stratégie | Verdict expert | Notre position |
+|---|---|---|---|
+| P0 | RAG sélectif par patterns | ✅ Fondamentale | Accordé — à implémenter en Semaine 2 |
+| P0 | Slim canonical JSON (3 niveaux) | ✅ Efficace, faible risque | Accordé — niveaux full/medium/minimal |
+| P1 | Fixer sans RAG cycles 2–3 | ✅ Pertinent | Accordé — −65% INPUT cycles 2–3 |
+| P1 | Documenter sans canonical | ✅ Logique | Accordé — code = source plus directe |
+| P2 | `--max-tokens` par agent | ✅ Garde-fou essentiel | Valeurs calibrées par agent (pas uniformes) |
+| P3 | Prompt chaining | ✅ Enthousiaste | Réservé — utile sur CRITICAL seulement |
+| P4 | Caching LLM responses | ✅ Bon concept | Cible = RAG en mémoire, pas les prompts XML |
+| P5 | Distillation modèles | ✅ Pertinent à l'échelle | Hors scope POC — nécessite 50–100 migrations |
+| P6 | Self-correction avancée | ✅ Bonne direction | Guard `if df.empty` implémentable maintenant |
+
+#### Rapport expert 2 — Analyse `OPTIMISATION_PIPELINE_AGENTIQUE.md` (`analyse_expert_optimisation_agentique.md`)
+
+Validation du document produit + 3 recommandations "Next Level" :
+
+| Recommandation | Phase retenue | Notre analyse |
+|---|---|---|
+| LLM-as-a-Judge (agent évaluateur) | Phase 2 | 6ème agent naturel, Haiku, grille JSON — utile sur workflows sans golden data |
+| Non-Regression Testing prompts (drift detection) | Phase 3 / dès prod | Script bash sur 3 golden workflows, comparaison structurelle |
+| LangGraph orchestration | Phase 3 | Pertinent quand > 10 workflows parallèles ou graphes non-linéaires |
+
+#### Document produit : `OPTIMISATION_PIPELINE_AGENTIQUE.md`
+
+Document de référence en 7 sections, utilisable sur tout pipeline agentique LLM :
+
+| Section | Contenu |
+|---|---|
+| 1 | Anatomie pipeline + volumes tokens observés + répartition coûts |
+| 2 | Optimisation tokens INPUT (RAG sélectif, slim canonical, format compact, max-tokens) |
+| 3 | Optimisation tokens OUTPUT (model downgrade, AST merge, docstrings séparées) |
+| 4 | Stratégies LLMOps avancées (caching, routing, self-correction, distillation) |
+| 5 | Feuille de route universelle (3 phases + 6 principes transversaux) |
+| 6 | Plan d'implémentation POC — 10 actions priorisées sur 3 semaines |
+| 7 | Extensions industrialisation (Judge, drift detection, LangGraph) |
+
+**Impact total estimé après Semaine 3** : −60 à −65% du coût total pipeline.
+
+---
+
+### Étape 14 — Implémentation Semaine 1 quick wins (`18deab5`)
+
+**Commit** : `18deab5` — `feat: implement Semaine 1 quick wins (model routing, guards, BATCH_DATE)`
+
+#### Changements implémentés
+
+| Fichier | Changement | Impact |
+|---|---|---|
+| `fixer_agent.py` | Cycle 1 → Sonnet, cycles 2–3 → Haiku | −80% coût sur corrections répétées |
+| `fixer_agent.py` | Cycles 2–3 : RAG supprimé + canonical slim (name + expression uniquement) | −65% INPUT tokens cycles 2–3 |
+| `fixer_agent.py` | `--max-tokens 4000` cycle 1 / `2000` cycles 2–3 | Guard timeout + coût |
+| `codegen_agent.py` | Règle `if df.empty: return` dans hard constraints du prompt | Résout CRASHes QA sur extract vide |
+| `codegen_agent.py` | `--max-tokens 4000` | Guard timeout |
+| `qa_agent.py` | `BATCH_DATE` : `2026-01-01` → `2023-01-01` | Fixtures synthétiques passent le filtre date |
+
+#### Détail fixer_agent.py — routing modèle par cycle
+
+```python
+MODEL_CYCLE1 = "claude-sonnet-4-6"          # cycle 1: analyse sémantique complète
+MODEL_CYCLES  = "claude-haiku-4-5-20251001"  # cycles 2-3: corrections mineures
+```
+
+Cycles 2–3 reçoivent uniquement :
+- Issues statiques détectées
+- Canonical slim : `workflow_name` + `transformations[].ports[].{name, expression}`
+- Code courant à corriger
+- Aucun RAG (python_templates.md ni transformation_map.json)
+
+#### Prochaine étape — Semaine 2
+
+| # | Action | Fichier | Effort |
+|---|---|---|---|
+| 5 | `slim_canonical(canonical, level)` | nouveau `agents/utils.py` | 2h |
+| 6 | `select_rag_sections(canonical, rag_map)` | `agents/utils.py` | 3–4h |
+| 7 | Documenter sans canonical JSON | `documenter_agent.py` | 30 min |
+
+---
+
 ### Prochaine action immédiate
 
 | Priorité | Tâche |
 |---|---|
+| P0 | Implémenter `agents/utils.py` — `slim_canonical` + `select_rag_sections` (Semaine 2) |
 | P0 | Terminer la campagne tests sur les 5 XMLs restants (wf_products_dim, wf_sales_monthly, wf_unconnected_lkp, wf_xml_normalizer, wf_transactions_hist) |
-| P0 | Corriger `BATCH_DATE=2023-01-01` dans les fixtures synthétiques pour tester le code réel |
-| P1 | Ajouter post-traitement déterministe dans Documenter — tronquer si `"```json"` apparaît |
+| P1 | Documenter sans canonical JSON (`documenter_agent.py`) |
 | P1 | Référencer `etl_utils.py` dans les prompts CodeGen + RAG Base |
