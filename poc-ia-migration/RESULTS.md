@@ -6,6 +6,105 @@
 
 ---
 
+## Position par rapport à l'existant
+
+### Avant ce POC — Le processus manuel
+
+Avant ce pipeline, une migration Informatica PowerCenter vers Python/Databricks se déroulait ainsi :
+
+**Phase d'analyse (2-4 semaines par workflow)**
+- Un consultant lit le XML Informatica manuellement
+- Il documente les transformations dans un tableur Excel
+- Il produit un document de spécification fonctionnelle à la main
+- Revue par un architecte data (demi-journée à 1 journée)
+
+**Phase de développement (1-3 semaines par workflow)**
+- Un développeur Python code le script depuis la spécification
+- Tests manuels avec des données d'exemple préparées à la main
+- Allers-retours avec le consultant pour corriger les incompréhensions
+- Pas de traçabilité automatique entre le XML source et le code produit
+
+**Phase de recette (1-2 semaines par workflow)**
+- Comparaison manuelle des sorties avec les données de référence
+- Rapport de recette rédigé à la main
+- Signature du client après validation
+
+**Coût réel estimé** : 3 000 à 8 000 € par workflow · 500 workflows = 1,5M€ à 4M€ · 12-24 mois de projet.
+
+**Risques du processus manuel**
+- Perte de connaissance si le consultant part (le XML est la seule source de vérité)
+- Aucune traçabilité automatique — la spécification Excel dérive du code réel
+- Qualité variable selon le niveau du développeur
+- Pas de garde-fou sur les patterns dangereux (iterrows, apply, tuple comparison NaT)
+
+---
+
+### Ce que ce POC change concrètement
+
+| Dimension | Avant (manuel) | Avec le pipeline |
+|---|---|---|
+| Temps d'analyse | 2-4 semaines | **77-84s** (Parser + analyse sémantique) |
+| Temps de développement | 1-3 semaines | **23-146s** (CodeGen + Fixer) |
+| Documentation métier | Tableur Excel manuel | **183-216 lignes Markdown** générées automatiquement |
+| Rapport de recette | Rédigé à la main | **HTML + JSON** produits automatiquement |
+| Traçabilité XML → code | Nulle | **Canonical JSON** — artefact auditable entre XML source et code produit |
+| Garde-fous qualité | Code review humaine | **Checklist statique automatique** (syntaxe, fonctions interdites, pattern age) |
+| Reproductibilité | Dépend du consultant | **Checkpoint system** — tout step rejouable indépendamment |
+| Coût par workflow | 3 000-8 000 € | **< 1 €** de LLM + 30min relecture humaine |
+
+---
+
+### Évolution du pipeline depuis son démarrage (Juin 2026)
+
+Le pipeline n'existait pas au début de cette session. Voici ce qui a été construit et corrigé étape par étape :
+
+**Phase 1 — Construction initiale (Étapes 0-8)**
+- Initialisation du repo, structure de dossiers, RAG Base
+- Parser Agent : parsing XML déterministe + analyse sémantique Claude
+- CodeGen Agent : JSON canonique → script Python batch
+- Fixer Agent : boucle de correction statique + sémantique (max 3 cycles)
+- Documenter Agent : documentation bilingue FR/EN + docstrings AST
+- QA Agent : data diff + rapport HTML/JSON
+- Pipeline orchestrateur avec checkpoint system (`--from-step N`)
+
+**Phase 2 — Optimisations post-POC (Semaines 1-3)**
+- sqlglot intégré pour transpilation SQL Oracle → Python (TO_DATE, TRUNC, DECODE)
+- Scoring de complexité automatique (LOW/MEDIUM/HIGH/CRITICAL)
+- RAG selection dynamique (−40 à −50% de tokens CodeGen)
+- Routing de modèle par agent (Haiku / Sonnet selon criticité)
+- etl_utils.py : bibliothèque de fonctions réutilisables
+
+**Phase 3 — Généricité complète (D16 — Juin 2026)**
+
+Problème découvert lors des tests : le pipeline contenait du hardcoding XML-spécifique (noms de colonnes, tables, tolérances en dur). Refactor complet :
+
+| Ce qui était hardcodé | Ce qui est maintenant générique |
+|---|---|
+| `TOLERANCE = {"CLIENT_ID": ..., "NOM_CLEAN": ...}` | `_build_tolerance_from_canonical(canonical)` — dérivé des datatypes XML |
+| `pk_col = "CLIENT_ID"` | `_detect_primary_key(canonical, tolerance)` — détecté depuis `is_primary_key` |
+| Fixtures : superset global de toutes les colonnes | Fixtures par table source depuis les champs XML de chaque source |
+| `STATUT_LIBELLE must come from lookup` (Fixer checklist) | Règle générique sur les suffixes `_x/_y` post-merge |
+| CodeGen prompt avec règles spécifiques wf_clients_dim | Prompt 100% générique basé sur le canonical JSON |
+
+**Bugs découverts et corrigés pendant la campagne de tests**
+
+| Workflow | Bug | Fix | Commit |
+|---|---|---|---|
+| wf_clients_dim | `KeyError: LIBELLE` — fixture unique pour toutes les sources → collision colonne après merge | Fixtures par table source (colonnes XML-defined) | `bf7b068` |
+| wf_products_dim | `Tolerance: 1 col, PK: *` — `<TRANSFORMATION TYPE="Target Definition">` ignoré par le parser | `_parse_targets()` supporte 2 structures XML | `bf7b068` |
+| wf_products_dim | `KeyError: CATEGORY_RAW` — colonne RHS de condition lookup absente de la fixture | Extraction colonnes depuis condition de lookup (regex) | `bf7b068` |
+| wf_sales_monthly | Documenter 14 lignes — prompt sans contexte sur le workflow | `{code}` ajouté dans EXPLANATION_PROMPT | `4704a0b` |
+| wf_sales_monthly | `superset-all` — Source Qualifier non indexé → fixture 24 cols génériques | SQ indexé par nom physique (strip `SQ_`) | `4704a0b` |
+
+**État actuel du pipeline**
+- **7 workflows testés** (LOW → HIGH) · **0 crash de script** sur les runs finaux
+- **Fixer = 1 cycle max** sur tous les workflows — qualité CodeGen stable
+- **Zéro hardcoding XML-spécifique** dans les agents
+- **1 seul workflow en échec** (wf_accounts_scd2 — pattern SCD2 edge case)
+- **wf_transactions_hist (CRITICAL)** reste à valider
+
+---
+
 ## Positionnement marché — Analyse comparative
 
 ### Acteurs en présence
