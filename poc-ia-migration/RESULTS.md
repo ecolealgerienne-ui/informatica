@@ -15,7 +15,7 @@
 | 2 | wf_products_dim | LOW | ✅ | ✅ | ✅ | ✅ | ✅ PASS* | Script OK, 0 rows out (filtre synthétique) — voir §2 |
 | 3 | wf_orders_fact | MEDIUM | ✅ | ✅ | ✅ | ✅ | ⚠️ FAIL* | Script OK, FAIL artificiel (BATCH_DATE) |
 | 4 | wf_sales_monthly | MEDIUM | ✅ | ✅ | ✅ | ✅ | ✅ PASS* | Script OK, 0 rows (2 sources, filtre date synthétique) — voir §4 |
-| 5 | wf_unconnected_lkp | MEDIUM/HIGH | — | — | — | — | — | À tester |
+| 5 | wf_unconnected_lkp | MEDIUM/HIGH | ✅ | ✅ | ✅ | ✅ | ✅ PASS* | Script OK, 0 rows (REF_DEPT superset-all) — voir §5 |
 | 6 | wf_accounts_scd2 | HIGH | ✅ | ✅ | ✅ | ✅ | ⚠️ CRASH | Script bug sur 0 lignes extract |
 | 7 | wf_xml_normalizer | HIGH | — | — | — | — | — | À tester |
 | 8 | wf_transactions_hist | CRITICAL | — | — | — | — | — | À tester |
@@ -296,6 +296,44 @@ Les deux sources utilisent des colonnes de type `superset-all` (pas de `<SOURCE>
 La documentation générée par le Documenter est anormalement courte (14 lignes vs ~130 attendues). Haiku a produit une réponse tronquée. N'impacte pas la qualité du code — les docstrings AST (10 injectées) sont correctes.
 
 **Conclusion** : Steps 1-4 validés sur un workflow CRITICAL (score=21) avec double source + Union. Le guard `if df.empty` absorbe proprement le cas 0 lignes.
+
+---
+
+---
+
+### 5. wf_unconnected_lkp — MEDIUM/HIGH ✅ PASS*
+
+**Patterns Informatica testés**
+- Source Qualifier : SQ_EMPLOYES avec TO_DATE Oracle (transpilé par sqlglot)
+- Lookup **non connecté** (`:LKP.` notation) : REF_PAYS, REF_GRADE_COEFF
+- REF_DEPT : lookup non connecté sans `<SOURCE>` explicite → fixture superset-all
+- Complexity CRITICAL (score=20, ~>5j)
+
+**Métriques pipeline**
+
+| Étape | Durée | Résultat |
+|---|---|---|
+| Parser | 84.3s | platform=databricks, feasibility=HIGH, complexity=CRITICAL (score=20, ~>5j) |
+| CodeGen | 123.7s | 216 lignes générées |
+| Fixer | 146.5s | FIXED / 1 cycle |
+| Documenter | 90.6s | 216 lignes explication + 11 docstrings via AST |
+| QA | 0.3s | PASS — 0 anomalie, 0 appel LLM |
+| **Total** | **445.4s** | ✅ PASS |
+
+**Données de test** : fixtures synthétiques (11 cols source, REF_PAYS 4 cols, REF_GRADE_COEFF 4 cols, REF_DEPT superset-all 32 cols)
+
+**Observation : 0 rows out**
+```
+[EXTRACT] rows=0
+[WARNING] No rows extracted — pipeline exits cleanly
+```
+Filtre date sur SQ_EMPLOYES élimine toutes les lignes synthétiques (même cause que wf_sales_monthly).
+
+**Points d'attention**
+- `Tolerance matrix: 1 columns | PK: *` → target absent ou non détecté dans le canonical JSON (même pattern que wf_products_dim avant fix parser). À surveiller.
+- `REF_DEPT_FILE → superset-all, 32 cols` → REF_DEPT n'a pas de `<SOURCE>` explicite dans le XML et n'est pas référencé en Source Qualifier → fixture générique. Si le script accède à une colonne précise de REF_DEPT absente du superset, risque de KeyError au runtime.
+
+**Conclusion** : Pipeline PASS sur un workflow MEDIUM/HIGH avec pattern lookup non connecté (`:LKP.`). Steps 1-4 entièrement validés. Guard early-exit absorbe 0 lignes proprement.
 
 ---
 
