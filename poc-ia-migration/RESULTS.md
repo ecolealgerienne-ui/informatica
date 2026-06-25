@@ -8,6 +8,13 @@
 
 ## Dimensions Informatica PowerCenter non couvertes & Impact Control-M
 
+### Question centrale
+Nos XMLs de test sont-ils représentatifs de la réalité du client ? Et puisque les workflows sont pilotés par Control-M, qu'est-ce que ça implique pour le POC ?
+
+**Réponse courte** : Nos XMLs couvrent uniquement la couche **mapping** (transformations). C'est 60% du sujet. Les 40% restants — orchestration, connexions physiques, paramétrage, sessions avancées — ne sont pas dans les XMLs exportés et ne sont pas couverts par le pipeline actuel.
+
+---
+
 ### 1. Ce que nos XMLs contiennent réellement
 
 Analyse des 9 fichiers XML de la campagne :
@@ -30,9 +37,9 @@ Analyse des 9 fichiers XML de la campagne :
 
 ---
 
-### 2. Dimensions Informatica non couvertes — Analyse d'impact
+### 2. Notions Informatica non couvertes — Liste complète
 
-#### 2a. Les Sessions (`<SESSION>`)
+#### Sessions (`<SESSION>`) — mentionné par le client
 
 Une Session dans Informatica est la **couche d'exécution** : elle lie un mapping à des connexions physiques (Oracle, fichier, JDBC), définit le comportement en cas d'erreur, le mode d'écriture (Insert / Update / Data Driven), les logs de session.
 
@@ -51,6 +58,68 @@ Une Session dans Informatica est la **couche d'exécution** : elle lie un mappin
 - Logs de session (`.log`) → non reproduits. En Databricks, c'est remplacé par les logs Spark.
 
 **Ce qu'il faudrait faire :** Parser les `SESSIONATTRIBUTE` et les injecter dans le canonical JSON comme métadonnées d'exécution.
+
+---
+
+#### Multi-source — mentionné par le client
+
+Un mapping peut lire depuis plusieurs sources **différentes** simultanément : Oracle + fichier plat + DB2 + XML. Chaque source a sa propre connexion physique.
+
+**Ce que le pipeline fait :** Nos XMLs testent déjà 2-3 sources (wf_sales_monthly, wf_orders_fact). Mais le pipeline suppose que tout est CSV. La notion de "d'où vient physiquement la donnée" est absente — les connexions réelles (Oracle, JDBC, FTP) ne sont pas générées.
+
+---
+
+#### Parameter Files (fichiers `.prm`) — non couverts
+
+En production, un fichier externe `.prm` contient les valeurs des variables au lancement :
+```
+[wf_clients_dim.s_clients_dim]
+$$BATCH_DATE=2026-06-25
+$$ENV=PROD
+$$MAX_ROWS=1000000
+```
+Ce fichier permet d'exécuter le même workflow en DEV / RECETTE / PROD sans changer le XML.
+
+**Impact :** Nos XMLs n'ont pas ce fichier. En production chaque workflow peut avoir 5 à 20 paramètres injectés à l'exécution. Le pipeline ne sait pas que ces paramètres existent.
+
+---
+
+#### Workflow Variables vs Mapping Variables — partiellement couverts
+
+Deux niveaux de variables dans Informatica :
+- **Mapping Variables** (`$$BATCH_DATE`) — persistent entre runs via le repository → `$$BATCH_DATE` converti en env var ✅
+- **Workflow Variables** (`$WorkflowStartTime`, variables custom) — calculées à chaque exécution, servent à passer des valeurs **entre sessions** dans le même workflow
+
+**Impact :** Si un workflow a 3 sessions chaînées qui se passent des valeurs via workflow variables, cette logique de chaînage est perdue.
+
+---
+
+#### Graphe de tâches dans le Workflow — non couvert
+
+Un workflow n'est pas juste "une session". C'est un graphe de tâches avec branchements :
+```
+Start → [Session A] → [Session B] → [Email Task] → End
+                   ↘ [Session C] ↗
+```
+Avec des conditions sur les liens (si A échoue → aller vers C, si A réussit → aller vers B).
+
+**Impact :** Nos XMLs n'ont qu'une session par workflow. En production, un workflow peut orchestrer 4 à 10 sessions avec des branchements conditionnels. Le pipeline ne voit que le mapping, pas le graphe d'exécution.
+
+---
+
+#### Worklets partagés — non couverts
+
+Un worklet est un workflow réutilisable embarqué dans d'autres workflows. Exemple : "init_params" est un worklet appelé par 50 workflows pour charger les paramètres communs.
+
+**Impact :** On ne résout pas les worklets. Si un worklet manque, le workflow est incomplet.
+
+---
+
+#### Connexions physiques (Connection Objects) — non couvertes
+
+Dans PowerCenter, les connexions Oracle / fichier / FTP sont des objets nommés du repository, réutilisés entre tous les workflows. Exemple : `SRC_ORACLE_PROD` est défini une fois, utilisé par 200 workflows.
+
+**Impact :** Nos XMLs contiennent le nom de la connexion mais pas sa définition (host, port, user, schema). Cette config n'est pas dans le XML du workflow — elle est dans le repository Informatica. Pour générer du code qui lit vraiment depuis Oracle, il faut y accéder.
 
 ---
 
@@ -151,19 +220,21 @@ Option B — Migrer vers Databricks Workflows
 
 ---
 
-### 4. Récapitulatif — Ce qui manque et priorité
+### 4. Récapitulatif — Ce qui manque, priorité production
 
-| Dimension manquante | Criticité production | Effort fix | Priorité |
+| Notion manquante | Criticité production | Effort fix | Priorité |
 |---|---|---|---|
-| Sessions : connexions Oracle → Databricks | CRITIQUE | Moyen (parser + CodeGen template connexion) | P0 |
-| Mapping Variables complètes ($$MAX_ROWS, etc.) | HAUTE | Faible (parser + env var generation) | P1 |
-| `Treat source rows as = Data Driven` (SCD2 upsert) | HAUTE | Élevé (logique INSERT/UPDATE/DELETE) | P1 |
-| Worklets réutilisables | MOYENNE | Moyen (résolution de référence) | P2 |
-| Manifest orchestration (Control-M / Databricks Workflows) | MOYENNE | Faible (nouveau agent GeneratorAgent) | P2 |
+| Sessions : connexions Oracle → Databricks | CRITIQUE | Moyen | P0 |
+| Connexions physiques (repository Informatica) | CRITIQUE | Élevé (accès repo nécessaire) | P0 |
+| `Treat source rows as = Data Driven` (SCD2 upsert) | HAUTE | Élevé | P1 |
+| Parameter Files (`.prm`) | HAUTE | Faible | P1 |
+| Workflow Variables (chaînage entre sessions) | HAUTE | Moyen | P1 |
+| Graphe de tâches + branchements conditionnels | MOYENNE | Élevé | P2 |
+| Worklets partagés | MOYENNE | Moyen | P2 |
+| Manifest orchestration pour Control-M / Databricks Workflows | MOYENNE | Faible | P2 |
 | CONCURRENT="YES" → parallélisme Python | FAIBLE | Élevé | P3 |
-| Pre/Post-session commands | FAIBLE | Faible | P3 |
 
-> **Conclusion** : Pour un POC de validation des patterns de transformation, notre pipeline est complet. Pour une migration production, les points P0 et P1 sont bloquants : les connexions Oracle et le mode Data Driven (SCD2) doivent être couverts avant de livrer des scripts exécutables sur l'infrastructure réelle du client.
+> **Conclusion** : Notre POC valide la partie **transformation** (le cœur métier du mapping) — c'est 60% du sujet. Pour une migration production complète, il faut accès au repository Informatica complet (pas juste les exports XML de mappings) et à la config Control-M. Les points P0 et P1 sont bloquants avant de livrer des scripts exécutables sur l'infrastructure réelle du client.
 
 ---
 
