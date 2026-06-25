@@ -138,12 +138,15 @@ Return the complete corrected script inside a ```python block.
 """
 
 
-MODEL = "claude-sonnet-4-6"  # semantic correction — powerful model required, errors here trigger ESCALATE
+MODEL_CYCLE1 = "claude-sonnet-4-6"       # cycle 1: complex semantic analysis
+MODEL_CYCLES  = "claude-haiku-4-5-20251001"  # cycles 2-3: minor corrections, Haiku sufficient
 
 
-def call_claude(prompt: str) -> str:
+def call_claude(prompt: str, cycle: int = 1) -> str:
+    model = MODEL_CYCLE1 if cycle == 1 else MODEL_CYCLES
     result = subprocess.run(
-        ["claude", "-p", "--model", MODEL, "--output-format", "text"],
+        ["claude", "-p", "--model", model, "--output-format", "text",
+         "--max-tokens", "4000" if cycle == 1 else "2000"],
         input=prompt,
         capture_output=True,
         text=True,
@@ -176,25 +179,48 @@ def extract_code(raw: str) -> str:
     return raw.strip()
 
 
-def semantic_fix(code: str, static_report: dict, canonical: dict) -> str:
-    rag_map       = json.loads(RAG_MAP_PATH.read_text(encoding="utf-8"))
-    rag_templates = RAG_TMPL_PATH.read_text(encoding="utf-8")
-
+def semantic_fix(code: str, static_report: dict, canonical: dict, cycle: int = 1) -> str:
     issues_text = (
         json.dumps(static_report["issues"], indent=2)
         if static_report["issues"]
         else "No static issues detected. Perform full semantic review anyway."
     )
 
-    prompt = FIXER_PROMPT_TEMPLATE.format(
-        rag_templates=rag_templates,
-        rag_map=json.dumps(rag_map, indent=2),
-        issues=issues_text,
-        canonical_json=json.dumps(canonical, indent=2),
-        code=code,
-    )
+    if cycle == 1:
+        # Full RAG + full canonical on first cycle
+        rag_map       = json.loads(RAG_MAP_PATH.read_text(encoding="utf-8"))
+        rag_templates = RAG_TMPL_PATH.read_text(encoding="utf-8")
+        prompt = FIXER_PROMPT_TEMPLATE.format(
+            rag_templates=rag_templates,
+            rag_map=json.dumps(rag_map, indent=2),
+            issues=issues_text,
+            canonical_json=json.dumps(canonical, indent=2),
+            code=code,
+        )
+    else:
+        # Cycles 2-3: no RAG, minimal canonical (name + datatype + expression only)
+        slim = {
+            "workflow_name": canonical.get("workflow_name", ""),
+            "transformations": [
+                {
+                    "name": t.get("name"), "type": t.get("type"),
+                    "ports": [
+                        {"name": p.get("name"), "expression": p.get("expression")}
+                        for p in t.get("ports", []) if p.get("name")
+                    ],
+                }
+                for t in canonical.get("transformations", [])
+            ],
+        }
+        prompt = FIXER_PROMPT_TEMPLATE.format(
+            rag_templates="(omitted on correction cycle — focus on the specific issues below)",
+            rag_map="(omitted on correction cycle)",
+            issues=issues_text,
+            canonical_json=json.dumps(slim, indent=2),
+            code=code,
+        )
 
-    raw = call_claude(prompt)
+    raw = call_claude(prompt, cycle=cycle)
     return extract_code(raw)
 
 
@@ -223,8 +249,9 @@ class FixerAgent:
                   f"forbidden={len(static['forbidden_hits'])} "
                   f"age_pattern={static['age_pattern_ok']}")
 
-            print(f"[Fixer]   Calling Claude Code for semantic review...")
-            fixed_code = semantic_fix(current_code, static, self.canonical)
+            model_used = MODEL_CYCLE1 if cycle == 1 else MODEL_CYCLES
+            print(f"[Fixer]   Calling Claude Code for semantic review (model={model_used})...")
+            fixed_code = semantic_fix(current_code, static, self.canonical, cycle=cycle)
 
             fixed_static = run_static_checks(fixed_code)
 

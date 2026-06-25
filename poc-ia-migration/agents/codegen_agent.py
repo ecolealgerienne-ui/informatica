@@ -40,6 +40,11 @@ Generate a complete, runnable Python batch script from a canonical JSON descript
 5. Follow the exact mandatory batch structure from the RAG Base
 6. All datetime operations use pd.to_datetime() or .dt accessor — never strptime() in a loop
 7. Output ONLY the ```python code block — zero explanations, zero markdown outside the block
+8. MANDATORY GUARD: After every extract step, add an early-exit guard:
+   if df.empty:
+       print("[WARNING] No rows extracted — pipeline exits cleanly")
+       return
+   This prevents crashes on downstream operations (merges, type casts) when filters return 0 rows.
 
 ## RAG Base — Approved transformation map
 {rag_map}
@@ -79,7 +84,7 @@ MODEL = "claude-sonnet-4-6"  # code generation — powerful model required for q
 def call_claude(system: str, user: str) -> str:
     prompt = f"SYSTEM:\n{system}\n\nUSER:\n{user}"
     result = subprocess.run(
-        ["claude", "-p", "--model", MODEL, "--output-format", "text"],
+        ["claude", "-p", "--model", MODEL, "--output-format", "text", "--max-tokens", "4000"],
         input=prompt,
         capture_output=True,
         text=True,

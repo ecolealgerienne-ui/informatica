@@ -190,7 +190,7 @@ def _build_fixture_env(
       2. Otherwise generate synthetic CSV from canonical JSON port names
     """
     file_vars    = _extract_file_env_vars(code_path)
-    env_map      = {"OUTPUT_FILE": str(ACTUAL_PATH), "BATCH_DATE": "2026-01-01"}
+    env_map      = {"OUTPUT_FILE": str(ACTUAL_PATH), "BATCH_DATE": "2023-01-01"}
 
     # Priority 1: columns inferred by static analysis of the generated script itself
     script_cols  = _columns_used_per_env_var(code_path)
@@ -253,7 +253,7 @@ def execute_batch(code_path: str, canonical: dict | None = None, workflow_name: 
         env["SOURCE_FILE"]     = "tests/golden_dataset.csv"
         env["REF_STATUT_FILE"] = "tests/ref_statut.csv"
         env["OUTPUT_FILE"]     = str(ACTUAL_PATH)
-        env["BATCH_DATE"]      = "2026-01-01"
+        env["BATCH_DATE"]      = "2023-01-01"
 
     print(f"[QA] Executing batch: {code_path}")
     result = subprocess.run(
