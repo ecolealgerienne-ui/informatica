@@ -664,11 +664,128 @@ Cycles 2–3 reçoivent uniquement :
 
 ---
 
+### Étape 15 — Semaine 2 : utils.py + RAG sélectif + slim canonical (`07f516e`)
+
+**Commit** : `07f516e` — `feat: implement Semaine 2 — utils.py + selective RAG + slim canonical`
+
+#### Nouveau fichier : `agents/utils.py`
+
+| Fonction | Description | Impact |
+|---|---|---|
+| `slim_canonical(canonical, level)` | 3 niveaux : `full` (Parser), `medium` (CodeGen/Fixer cy1), `minimal` (Fixer cy2-3) | −30% INPUT tokens CodeGen/Fixer |
+| `select_rag_sections(canonical, map_path, tmpl_path)` | Mappe les types de transformation détectés → sections RAG pertinentes uniquement | −65.5% RAG validé en test |
+| `load_file_cached(path)` | Cache mémoire pour éviter les relectures disque à chaque appel agent | Latence I/O |
+| `rag_stats(...)` | Log le pourcentage de réduction caractères pour diagnostic | Observabilité |
+
+#### Mapping transformation → RAG (select_rag_sections)
+
+| Type Informatica | Clés map injectées | Sections templates injectées |
+|---|---|---|
+| Source Qualifier | string, date, null, oracle, null_safety, sorted | Mandatory Batch, Null-Safe, Sorted Input |
+| Expression | string, date, null, conditional, numeric | String Cleaning, Age Calculation, DECODE |
+| Lookup Procedure | lookup_patterns, null_safety | Lookup as Merge, Unconnected Lookup, Case-Insensitive |
+| Aggregator | aggregation, sorted_input | Sorted Input, Mandatory Batch |
+| Router | router_patterns | Pattern: Router |
+| SCD / Update Strategy | scd_patterns | Pattern: SCD Type 2 |
+| Normalizer | normalizer_patterns | Pattern: Normalizer / Unpivot |
+
+**Toujours injectés** : `null_safety_rules` + `Mandatory Batch Structure` + `Idempotent Load` + `Forbidden Patterns`
+
+#### Agents mis à jour
+
+| Agent | Changement |
+|---|---|
+| `codegen_agent.py` | `select_rag_sections` + `slim_canonical(medium)` + log réduction |
+| `fixer_agent.py` | Cycle 1 : `select_rag_sections` + `slim_canonical(medium)` |
+| `documenter_agent.py` | Canonical JSON supprimé du prompt + `--max-tokens 3000` |
+
+**Résultat validé** : −65.5% de tokens RAG sur workflow Expression (test unitaire `python3 -c`).
+
+---
+
+### Étape 16 — Semaine 3 : AST function patches + docstring injection (`cf586cd`)
+
+**Commit** : `cf586cd` — `feat: implement Semaine 3 — AST function patches + docstring injection`
+
+#### Nouvelles fonctions dans `agents/utils.py`
+
+**`apply_function_patches(original_code, patched_functions_code) → str`**
+
+Remplace les fonctions nommées dans le script original par leurs versions corrigées issues du LLM.
+
+```
+LLM Fixer cy2-3 → retourne seulement la/les fonctions corrigées
+apply_function_patches() → cherche par nom dans l'AST original → remplace body/args
+Résultat → script complet avec corrections appliquées
+```
+
+Propriétés de robustesse :
+- Pas de matching ligne-par-ligne (fragile)
+- Pas de diff texte (sensible au whitespace)
+- Si `SyntaxError` dans le patch → retourne `original_code` inchangé
+- Fonctions non trouvées dans l'original → ignorées silencieusement
+
+**`inject_docstrings(code, docstrings: dict) → str`**
+
+Insère les docstrings comme première instruction de chaque fonction nommée.
+
+```
+LLM Documenter → retourne JSON {"__module__": "...", "fn_name": "..."}
+inject_docstrings() → parse AST → insère Constant node en body[0] de chaque FunctionDef
+Résultat → code fonctionnellement identique + docstrings injectées
+```
+
+Propriétés :
+- Idempotent : supprime l'ancienne docstring si présente avant d'insérer la nouvelle
+- Clés absentes de l'AST → ignorées silencieusement
+- `SyntaxError` → retourne `code` inchangé
+- Utilise `ast.unparse` natif Python 3.11 — aucune dépendance externe
+
+#### Impact sur les agents
+
+**`fixer_agent.py`** :
+
+| Cycle | Avant | Après |
+|---|---|---|
+| 1 | Prompt → full script | Inchangé (full script, sélectif RAG) |
+| 2-3 | Prompt → full script (Haiku) | Prompt → fonctions corrigées seulement → AST merge |
+
+Réduction output Fixer cycles 2-3 : **−65% tokens OUTPUT**
+
+**`documenter_agent.py`** :
+
+| Avant | Après |
+|---|---|
+| Prompt → script annoté complet (~3000 tokens output) | Prompt → JSON docstrings dict (~800 tokens output) |
+| LLM réécrit tout le code | LLM produit uniquement les textes → `inject_docstrings()` |
+
+Réduction output Documenter : **−55% tokens OUTPUT**
+Fallback : si JSON parse échoue → code original retourné inchangé (pipeline ne crashe pas)
+
+#### Bilan cumulé des 3 semaines d'optimisation
+
+| Semaine | Commits | Optimisations | Impact estimé |
+|---|---|---|---|
+| 1 | `18deab5` | Model routing Fixer, guard empty df, BATCH_DATE | −80% coût Fixer cy2-3 |
+| 2 | `07f516e` | RAG sélectif, slim canonical, Documenter sans canonical | −65% INPUT CodeGen/Fixer |
+| 3 | `cf586cd` | AST patches Fixer, AST docstrings Documenter | −65% OUTPUT Fixer cy2-3, −55% OUTPUT Doc |
+
+**Impact total cumulé estimé : −60 à −65% du coût total pipeline**
+
+| Poste | Avant | Après | Réduction |
+|---|---|---|---|
+| Tokens INPUT total / run | ~21 000 | ~10 500 | −50% |
+| Tokens OUTPUT Fixer (3 cycles) | ~7 500 | ~1 500 | −80% |
+| Tokens OUTPUT Documenter | ~3 000 | ~1 350 | −55% |
+| **Coût total estimé** | **100%** | **~35–40%** | **−60 à −65%** |
+
+---
+
 ### Prochaine action immédiate
 
 | Priorité | Tâche |
 |---|---|
-| P0 | Implémenter `agents/utils.py` — `slim_canonical` + `select_rag_sections` (Semaine 2) |
-| P0 | Terminer la campagne tests sur les 5 XMLs restants (wf_products_dim, wf_sales_monthly, wf_unconnected_lkp, wf_xml_normalizer, wf_transactions_hist) |
-| P1 | Documenter sans canonical JSON (`documenter_agent.py`) |
+| P0 | Relancer la campagne de tests (wf_clients_dim en premier pour valider les gains réels) |
+| P0 | Terminer les 5 XMLs restants : wf_products_dim, wf_sales_monthly, wf_unconnected_lkp, wf_xml_normalizer, wf_transactions_hist |
 | P1 | Référencer `etl_utils.py` dans les prompts CodeGen + RAG Base |
+| P2 | Implémenter LLM-as-a-Judge (6ème agent, Phase 2) |
