@@ -588,6 +588,119 @@ L'utilisation de modèles fine-tunés pour les cas LOW est pertinente à l'éche
 
 ---
 
+## 7. Extensions pour l'industrialisation
+
+> Ces trois recommandations, issues de la revue expert du document, constituent la feuille de route au-delà du POC. Elles sont classées par priorité d'implémentation dans notre contexte.
+
+### 7.1 LLM-as-a-Judge — Agent évaluateur de qualité (Phase 2)
+
+**Contexte** : Notre QA actuel est un **Data Diff** — il compare les lignes produites avec un golden dataset. Il ne juge pas la qualité intrinsèque du code généré. Pour les workflows sans golden data (la majorité), le verdict QA est aveugle à la lisibilité, à la maintenabilité et à la correction sémantique de la migration.
+
+**Solution** : Ajouter un 6ème agent `JudgeAgent` (Haiku, tâche d'évaluation structurée) qui évalue le code généré selon une grille de scoring fixe.
+
+```python
+JUDGE_PROMPT = """
+Évalue le script PySpark généré selon ces critères. Retourne UNIQUEMENT ce JSON :
+{
+  "scores": {
+    "pattern_fidelity": <0-10>,      // Patterns Informatica correctement traduits
+    "pyspark_standards": <0-10>,     // Respect des standards Databricks/PySpark
+    "readability": <0-10>,           // Lisibilité et maintenabilité
+    "error_handling": <0-10>,        // Guards empty df, gestion des cas limites
+    "semantic_correctness": <0-10>   // Logique métier préservée
+  },
+  "blocking_issues": [],             // Problèmes qui invalident la migration
+  "warnings": [],                    // Points d'attention non bloquants
+  "overall": <0-10>
+}
+"""
+```
+
+**Intégration dans le pipeline** :
+```
+Parser → CodeGen → Fixer → Documenter → Judge → QA
+```
+
+Le Judge s'insère entre Documenter et QA. Son rapport JSON est intégré dans le rapport HTML final avec une section "Code Quality Score".
+
+**Pourquoi Haiku suffit** : L'évaluation selon une grille fixe est une tâche structurée — pas de génération complexe. Haiku est 20× moins cher que Sonnet pour le même niveau de précision sur ce type de tâche.
+
+**Valeur ajoutée clé** : Donne de la confiance sur les workflows qu'on ne peut pas valider avec des données golden (wf_unconnected_lkp, wf_xml_normalizer, wf_transactions_hist).
+
+---
+
+### 7.2 Non-Regression Testing des prompts (Drift Detection) (Phase 3 / dès production)
+
+**Le risque invisible** : Anthropic met à jour Sonnet et Haiku en continu via l'API. Un prompt parfaitement optimisé en juin 2026 peut produire des résultats sensiblement différents en décembre 2026 sans aucun changement de notre côté. Ce phénomène de **dérive de modèle** est le plus grand risque en production pour un pipeline LLM.
+
+**Symptômes typiques** :
+- Le Fixer commence à retourner des fonctions incomplètes après une mise à jour silencieuse du modèle
+- Le Parser classe différemment la complexité des mêmes patterns
+- Le Documenter génère des docstrings dans un format non parseable
+
+**Solution** : Un jeu de **Golden Runs** — les workflows de référence validés (wf_clients_dim, wf_orders_fact, wf_accounts_scd2) rejoués mensuellement avec comparaison des outputs contre des snapshots figés.
+
+```bash
+# Script de non-régression (à lancer mensuellement en CI)
+#!/bin/bash
+GOLDEN_WORKFLOWS=("wf_clients_dim" "wf_orders_fact" "wf_accounts_scd2")
+SNAPSHOT_DIR="tests/golden_snapshots"
+
+for wf in "${GOLDEN_WORKFLOWS[@]}"; do
+    python pipeline/run_pipeline.py "xml/${wf}.xml" --force
+    diff "output/03_fixed_code/${wf}_fixed.py" "${SNAPSHOT_DIR}/${wf}_fixed.py.snap" \
+        || echo "DRIFT DETECTED on ${wf}"
+done
+```
+
+**Ce qu'on compare** :
+- Structure du canonical JSON (même clés, même types de complexité)
+- Présence des fonctions attendues dans le code généré
+- Score Judge (si implémenté) — alerte si score global chute de >1 point
+
+**Ce qu'on ne compare pas** : Le code ligne-par-ligne (trop fragile, les LLM varient stylistiquement). On compare la **structure** et le **comportement**, pas la forme exacte.
+
+**Effort d'implémentation** : Faible. C'est `run_pipeline.py` + un script de comparaison structurelle. À documenter maintenant, à automatiser en CI dès la mise en production.
+
+---
+
+### 7.3 Orchestration par graphe (LangGraph) (Phase 3)
+
+**Quand LangGraph devient pertinent** : Notre pipeline actuel est linéaire avec un seul cycle conditionnel (Fixer). LangGraph apporte de la valeur quand les graphes de dépendances entre agents deviennent non-linéaires — par exemple :
+
+```
+Parser
+  │
+  ├─ [CRITICAL] → CodeGen (par blocs) → Fixer → Judge
+  │                                        │
+  │                              [score < 6] → Escalade humaine
+  │                                        │
+  │                              [score ≥ 6] → Documenter → QA
+  │
+  └─ [LOW/MEDIUM] → CodeGen (monolithique) → Fixer → Documenter → QA
+```
+
+LangGraph permet de maintenir un **état partagé** entre tous les agents (canonical, code courant, historique des erreurs, scores) et de définir des transitions conditionnelles formelles.
+
+**Prérequis avant d'adopter LangGraph** :
+1. Le pipeline traite des workflows en parallèle (volume > 10 simultanés)
+2. Les branchements conditionnels dépassent 3 niveaux de complexité
+3. L'état partagé entre agents devient difficile à gérer manuellement
+
+**Notre situation actuelle** : Nos agents communiquent via fichiers (checkpoints). C'est simple, debuggable, et suffisant pour le POC. LangGraph ajouterait une dépendance externe et une courbe d'apprentissage sans bénéfice mesurable avant Phase 3.
+
+---
+
+### Synthèse des extensions
+
+| Extension | Phase | Effort | Impact | Prérequis |
+|---|---|---|---|---|
+| LLM-as-a-Judge | 2 | 3–4h | Confiance sur workflows sans golden data | Agents stables |
+| Non-Regression Testing | 3 / dès prod | 2h | Détection dérive modèle | 3+ workflows validés |
+| LangGraph | 3 | 2–3 jours | Orchestration complexe | Volume > 10 workflows parallèles |
+
+---
+
 ## Références
 
 - Expert report interne : *Rapport d'Optimisation du Pipeline de Migration ETL assisté par IA* (Juin 2026)
