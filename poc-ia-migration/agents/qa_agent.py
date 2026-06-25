@@ -205,13 +205,19 @@ def _fields_from_canonical(canonical: dict) -> tuple[list[str], dict[str, list[s
                 if all_ref_cols:
                     cols_by_table[ref] = all_ref_cols
 
-    # Fallback: SQ output ports if no SOURCE table fields found
-    if not source_cols:
-        for t in canonical.get("transformations", []):
-            if t.get("type") == "Source Qualifier":
-                source_cols = [p["name"] for p in t.get("ports", []) if p.get("name")]
-                if source_cols:
-                    break
+    # Source Qualifier transformations → index by physical table name
+    # SQ_SALES_ONLINE → table_name=SALES_ONLINE, so SALES_ONLINE_FILE fixture gets SQ ports
+    # Also used as fallback for source_cols when no explicit <SOURCE> element exists
+    for t in canonical.get("transformations", []):
+        if t.get("type") == "Source Qualifier":
+            sq_name = t.get("name", "").upper()
+            # Strip common SQ_ prefix to get the physical table name
+            table_name = sq_name[3:] if sq_name.startswith("SQ_") else sq_name
+            ports = [p["name"] for p in t.get("ports", []) if p.get("name")]
+            if table_name and ports and table_name not in cols_by_table:
+                cols_by_table[table_name] = ports
+            if not source_cols and ports:
+                source_cols = ports
 
     return source_cols, cols_by_table
 

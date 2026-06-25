@@ -54,6 +54,12 @@ Never use tuple comparison `(month, day) < (month, day)` — it is fragile with 
 ## Task
 Produce a bilingual (French business / English technical) explanation of this Informatica PowerCenter workflow.
 The audience is: (1) business analysts who validate the migration, (2) developers who maintain the Python code.
+Base your explanation on the Python code provided below — it is the source of truth for what the workflow does.
+
+## Python code (source of truth)
+```python
+{code}
+```
 
 ## Required document structure
 
@@ -158,8 +164,9 @@ class DocumenterAgent:
     def generate_explanation(self) -> str:
         prompt = EXPLANATION_PROMPT.format(
             workflow_id=self.canonical.get("workflow_id", self.workflow_name.upper()),
+            code=self.code,
         )
-        print("[Documenter] Generating business/technical explanation (no canonical — code only)...")
+        print("[Documenter] Generating business/technical explanation (code-based)...")
         return call_claude(prompt, max_tokens=3000)
 
     def annotate_code(self, explanation: str) -> str:
