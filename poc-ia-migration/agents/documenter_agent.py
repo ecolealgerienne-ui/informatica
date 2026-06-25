@@ -81,8 +81,6 @@ For EACH transformation, produce a section like this:
 ## Risques & points de vigilance migration
 <Bullet list of things a reviewer should double-check>
 
-## Canonical JSON context (do NOT reproduce this in your output)
-{canonical_json}
 """
 
 
@@ -123,9 +121,10 @@ Comments must be:
 MODEL = "claude-haiku-4-5-20251001"  # structured reformulation — lightweight model sufficient
 
 
-def call_claude(prompt: str, timeout: int = 300) -> str:
+def call_claude(prompt: str, timeout: int = 300, max_tokens: int = 3000) -> str:
     result = subprocess.run(
-        ["claude", "-p", "--model", MODEL, "--output-format", "text"],
+        ["claude", "-p", "--model", MODEL, "--output-format", "text",
+         "--max-tokens", str(max_tokens)],
         input=prompt,
         capture_output=True,
         text=True,
@@ -170,11 +169,10 @@ class DocumenterAgent:
 
     def generate_explanation(self) -> str:
         prompt = EXPLANATION_PROMPT.format(
-            workflow_id=self.canonical.get("workflow_id", "wf_CLIENTS_DIM"),
-            canonical_json=json.dumps(self.canonical, indent=2),
+            workflow_id=self.canonical.get("workflow_id", self.workflow_name.upper()),
         )
-        print("[Documenter] Generating business/technical explanation...")
-        return call_claude(prompt)
+        print("[Documenter] Generating business/technical explanation (no canonical — code only)...")
+        return call_claude(prompt, max_tokens=3000)
 
     def annotate_code(self, explanation: str) -> str:
         prompt = ANNOTATION_PROMPT.format(

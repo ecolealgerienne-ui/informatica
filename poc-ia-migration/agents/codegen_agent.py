@@ -15,6 +15,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from agents.utils import select_rag_sections, slim_canonical, rag_stats
+
 
 CANONICAL_JSON_PATH = Path("output/01_canonical_json/wf_clients_dim.json")
 OUTPUT_DIR          = Path("output/02_generated_code")
@@ -132,15 +134,24 @@ class CodeGenAgent:
         self.workflow_name = workflow_name
 
     def run(self) -> str:
-        rag_map       = json.loads(RAG_MAP_PATH.read_text(encoding="utf-8"))
-        rag_templates = RAG_TEMPLATES_PATH.read_text(encoding="utf-8")
+        # Select only RAG sections relevant to this workflow's transformation types
+        selected_map, selected_tmpl = select_rag_sections(
+            self.canonical, str(RAG_MAP_PATH), str(RAG_TEMPLATES_PATH)
+        )
+        stats = rag_stats(str(RAG_MAP_PATH), str(RAG_TEMPLATES_PATH),
+                          selected_map, selected_tmpl)
+        print(f"[CodeGen] RAG selection: {stats['selected_chars']} / {stats['full_chars']} chars "
+              f"(−{stats['reduction_pct']}%)")
+
+        # Use medium slim canonical (drop precision/scale/nullable)
+        canonical_slim = slim_canonical(self.canonical, level="medium")
 
         system = SYSTEM_PROMPT.format(
-            rag_map=json.dumps(rag_map, indent=2),
-            rag_templates=rag_templates,
+            rag_map=selected_map,
+            rag_templates=selected_tmpl,
         )
         user = USER_PROMPT.format(
-            canonical_json=json.dumps(self.canonical, indent=2),
+            canonical_json=json.dumps(canonical_slim, indent=2),
         )
 
         print("[CodeGen] Calling Claude Code to generate Python batch...")

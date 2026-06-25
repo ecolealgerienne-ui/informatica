@@ -19,6 +19,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agents.utils import select_rag_sections, slim_canonical
+
 
 INPUT_CODE_PATH  = Path("output/02_generated_code/wf_clients_dim.py")
 INPUT_JSON_PATH  = Path("output/01_canonical_json/wf_clients_dim.json")
@@ -187,14 +189,16 @@ def semantic_fix(code: str, static_report: dict, canonical: dict, cycle: int = 1
     )
 
     if cycle == 1:
-        # Full RAG + full canonical on first cycle
-        rag_map       = json.loads(RAG_MAP_PATH.read_text(encoding="utf-8"))
-        rag_templates = RAG_TMPL_PATH.read_text(encoding="utf-8")
+        # Selective RAG + medium slim canonical on first cycle
+        selected_map, selected_tmpl = select_rag_sections(
+            canonical, str(RAG_MAP_PATH), str(RAG_TMPL_PATH)
+        )
+        canonical_slim = slim_canonical(canonical, level="medium")
         prompt = FIXER_PROMPT_TEMPLATE.format(
-            rag_templates=rag_templates,
-            rag_map=json.dumps(rag_map, indent=2),
+            rag_templates=selected_tmpl,
+            rag_map=selected_map,
             issues=issues_text,
-            canonical_json=json.dumps(canonical, indent=2),
+            canonical_json=json.dumps(canonical_slim, indent=2),
             code=code,
         )
     else:
