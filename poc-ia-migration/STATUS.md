@@ -252,8 +252,46 @@ Un expert externe a fourni une analyse de la batterie de tests. Bilan :
 | D13 | Analyse SQL | `sqlglot` déterministe avant appel LLM | LLM seul pour détecter les constructions SQL | sqlglot garantit des flags fiables (window, subquery, union, fonctions Oracle) ; le LLM reçoit des faits, pas une chaîne opaque à interpréter |
 | D14 | Transpilation SQL → Spark | `sqlglot` (best-effort, stocké dans canonical JSON) | LLM pour la transpilation | Pour les Source Qualifier avec sql_override, sqlglot génère un Spark SQL de départ que le CodeGen peut affiner |
 | D15 | Modèle LLM par agent | Haiku sur Parser/Documenter/QA — Sonnet sur CodeGen/Fixer | Sonnet partout | Les tâches de classification et reformulation ne justifient pas un modèle puissant ; CodeGen et Fixer impactent directement la qualité du code généré — économie estimée ~60-70% du coût LLM |
+| D16 | Zéro hardcoding XML-spécifique dans les agents | Toute info métier vient du canonical JSON | Constantes hardcodées par workflow | Le pipeline doit fonctionner sur n'importe quel XML sans modification de code |
 
 ---
+
+## 2b. Analyse — Montée en gamme des modèles (contexte entreprise)
+
+> **Contexte** : En environnement entreprise, le coût LLM est marginal face au coût d'un ingénieur. La question est donc : est-ce qu'Opus 4 à la place de Sonnet, et Sonnet à la place de Haiku, améliorent réellement la qualité du pipeline ?
+
+### Analyse par agent
+
+| Agent | Modèle POC | Modèle enterprise recommandé | Gain attendu | Justification |
+|---|---|---|---|---|
+| Parser | Haiku | **Haiku** (inchangé) | Aucun | 70% déterministe (XML + sqlglot). La partie LLM sert uniquement au scoring de complexité — Haiku le fait aussi bien que Sonnet (mesuré sur 3 runs) |
+| CodeGen | Sonnet | **Opus 4** ✅ Priorité 1 | Significatif | C'est là que la qualité du code migré est produite. Opus génère des scripts plus propres sur les patterns CRITICAL (SCD2, Router, Sequence), réduit les cycles Fixer, et livre un code que l'ingénieur revoit moins |
+| Fixer cy1 | Sonnet | **Opus 4** ✅ | Significatif | Cohérent avec CodeGen — si CodeGen génère mieux, Fixer cy1 voit des erreurs plus subtiles que Sonnet ne détecte pas toujours |
+| Fixer cy2-3 | Haiku | **Sonnet** optionnel | Modéré | Les corrections mineures restent simples ; Sonnet apporte peu sur ce cas |
+| Documenter | Haiku | **Sonnet** ✅ si livrable client | Réel sur la qualité doc | Haiku produit des explications superficielles (cas observé : 14 lignes). Sonnet rédige une documentation métier que les business analysts peuvent valider directement sans retouche |
+| QA | Haiku | **Haiku** (inchangé) | Négligeable | Tâche bornée : payload < 2KB, verdict JSON simple — le modèle ne change rien |
+
+### Argument ROI enterprise
+
+Le coût d'un ingénieur qui passe 2h à corriger manuellement un script SCD2 ou Normalizer mal généré dépasse largement le surcoût Opus. **Le ROI se justifie dès le premier workflow CRITICAL évité.**
+
+Estimation du gain qualitatif avec Opus sur CodeGen + Fixer :
+- Workflows CRITICAL : −30 à −40% de temps de revue humaine estimé
+- Cycles Fixer réduits sur les cas HIGH/CRITICAL
+- Documentation métier livrable directement au client sans retouche (avec Sonnet sur Documenter)
+
+### Décision
+
+Routing enterprise recommandé (non implémenté dans le POC, réservé Phase 2) :
+
+```
+Parser      : Haiku                (inchangé)
+CodeGen     : Sonnet → Opus 4
+Fixer cy1   : Sonnet → Opus 4
+Fixer cy2-3 : Haiku  → Sonnet
+Documenter  : Haiku  → Sonnet
+QA          : Haiku                (inchangé)
+```
 
 ## 3. Incidents & corrections
 
