@@ -19,7 +19,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agents.utils import select_rag_sections, slim_canonical
+from agents.utils import (apply_function_patches, _patches_applied_count,
+                          select_rag_sections, slim_canonical)
 
 
 INPUT_CODE_PATH  = Path("output/02_generated_code/wf_clients_dim.py")
@@ -103,7 +104,7 @@ def run_static_checks(code: str) -> dict:
 # Claude Code CLI call — semantic review + correction
 # ---------------------------------------------------------------------------
 
-FIXER_PROMPT_TEMPLATE = """You are a senior Python ETL code reviewer and fixer.
+FIXER_PROMPT_CYCLE1 = """You are a senior Python ETL code reviewer and fixer.
 
 ## CRITICAL OUTPUT RULE
 Your response MUST be a single ```python ... ``` code block with the fully corrected script.
@@ -132,11 +133,31 @@ NO prose, NO explanations outside the block. Start with ```python, end with ```.
 3. String ops: MUST use .str.strip()/.str.upper()/.str.lower() chains (NOT apply/lambda)
 4. Filter: MUST be a boolean mask df[condition] (NOT loop)
 5. Load: MUST write to .tmp then os.replace() (atomic swap)
-6. Output columns: CLIENT_ID, NOM_CLEAN, PRENOM_CLEAN, AGE, STATUT_CODE, STATUT_LIBELLE,
-   EMAIL_LOWER, SEGMENT_CODE, PAYS_CODE, DATE_CREATION, BATCH_DATE, DW_LOAD_DATE
+6. if df.empty: return — MUST be present after every extract step
 7. STATUT_LIBELLE must come from the lookup merge result (column LIBELLE renamed)
 
 Return the complete corrected script inside a ```python block.
+"""
+
+FIXER_PROMPT_CYCLES = """You are a senior Python ETL code fixer handling a targeted correction cycle.
+
+## CRITICAL OUTPUT RULE
+Return ONLY the Python functions that need correction — complete and correctly named.
+Do NOT return functions that are already correct. Do NOT return the full script.
+Wrap your response in a single ```python ... ``` block. Nothing else.
+
+## Issues to fix
+{issues}
+
+## Minimal context (transformation names and expressions)
+{canonical_json}
+
+## Current script (read-only — extract only the functions you need to fix)
+```python
+{code}
+```
+
+Fix ONLY the reported issues. Return only the corrected function(s).
 """
 
 
@@ -189,43 +210,31 @@ def semantic_fix(code: str, static_report: dict, canonical: dict, cycle: int = 1
     )
 
     if cycle == 1:
-        # Selective RAG + medium slim canonical on first cycle
+        # Cycle 1: selective RAG + medium slim canonical → full script output
         selected_map, selected_tmpl = select_rag_sections(
             canonical, str(RAG_MAP_PATH), str(RAG_TMPL_PATH)
         )
         canonical_slim = slim_canonical(canonical, level="medium")
-        prompt = FIXER_PROMPT_TEMPLATE.format(
+        prompt = FIXER_PROMPT_CYCLE1.format(
             rag_templates=selected_tmpl,
             rag_map=selected_map,
             issues=issues_text,
             canonical_json=json.dumps(canonical_slim, indent=2),
             code=code,
         )
+        raw = call_claude(prompt, cycle=cycle)
+        return extract_code(raw), "full"
     else:
-        # Cycles 2-3: no RAG, minimal canonical (name + datatype + expression only)
-        slim = {
-            "workflow_name": canonical.get("workflow_name", ""),
-            "transformations": [
-                {
-                    "name": t.get("name"), "type": t.get("type"),
-                    "ports": [
-                        {"name": p.get("name"), "expression": p.get("expression")}
-                        for p in t.get("ports", []) if p.get("name")
-                    ],
-                }
-                for t in canonical.get("transformations", [])
-            ],
-        }
-        prompt = FIXER_PROMPT_TEMPLATE.format(
-            rag_templates="(omitted on correction cycle — focus on the specific issues below)",
-            rag_map="(omitted on correction cycle)",
+        # Cycles 2-3: no RAG, minimal canonical → corrected functions only
+        slim = slim_canonical(canonical, level="minimal")
+        prompt = FIXER_PROMPT_CYCLES.format(
             issues=issues_text,
             canonical_json=json.dumps(slim, indent=2),
             code=code,
         )
-
-    raw = call_claude(prompt, cycle=cycle)
-    return extract_code(raw)
+        raw = call_claude(prompt, cycle=cycle)
+        patched_code = extract_code(raw)
+        return patched_code, "patch"
 
 
 # ---------------------------------------------------------------------------
@@ -254,16 +263,26 @@ class FixerAgent:
                   f"age_pattern={static['age_pattern_ok']}")
 
             model_used = MODEL_CYCLE1 if cycle == 1 else MODEL_CYCLES
-            print(f"[Fixer]   Calling Claude Code for semantic review (model={model_used})...")
-            fixed_code = semantic_fix(current_code, static, self.canonical, cycle=cycle)
+            print(f"[Fixer]   Calling Claude Code (model={model_used}, "
+                  f"mode={'full-script' if cycle == 1 else 'functions-only+AST'})...")
+            llm_output, output_mode = semantic_fix(current_code, static, self.canonical, cycle=cycle)
+
+            if output_mode == "patch":
+                n = _patches_applied_count(current_code, llm_output)
+                print(f"[Fixer]   AST patch applied — {n} function(s) replaced")
+                merged = apply_function_patches(current_code, llm_output)
+                fixed_code = merged if merged != current_code else llm_output
+            else:
+                fixed_code = llm_output
 
             fixed_static = run_static_checks(fixed_code)
 
             if static["issues"]:
                 corrections.append({
-                    "cycle":   cycle,
+                    "cycle":        cycle,
+                    "output_mode":  output_mode,
                     "issues_found": static["issues"],
-                    "resolved": not fixed_static["has_issues"],
+                    "resolved":     not fixed_static["has_issues"],
                 })
 
             current_code = fixed_code

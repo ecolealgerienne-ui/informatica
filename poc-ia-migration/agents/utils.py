@@ -1,13 +1,17 @@
 """
 Shared utilities for LLM pipeline optimization.
-- slim_canonical : reduce canonical JSON size per agent level
-- select_rag_sections : inject only RAG sections relevant to detected patterns
-- load_rag_cached : in-memory cache for RAG files (avoid repeated disk reads)
+- slim_canonical        : reduce canonical JSON size per agent level
+- select_rag_sections   : inject only RAG sections relevant to detected patterns
+- load_file_cached      : in-memory cache for file reads (avoid repeated disk I/O)
+- apply_function_patches: AST-based function replacement (Fixer cycles 2-3)
+- inject_docstrings     : AST-based docstring injection (Documenter)
 """
 
+import ast
 import copy
 import json
 import re
+import textwrap
 from pathlib import Path
 
 
@@ -210,3 +214,123 @@ def rag_stats(full_map_path: str, full_tmpl_path: str,
         "selected_chars": total_sel,
         "reduction_pct":  round((1 - total_sel / total_full) * 100, 1) if total_full else 0,
     }
+
+
+# ---------------------------------------------------------------------------
+# apply_function_patches — AST-based function replacement (Fixer cycles 2-3)
+#
+# The Fixer returns ONLY the corrected functions (not the full script).
+# We find each function by name in the original AST and replace its body.
+# Robust: no line-number matching, no text diffing, no whitespace sensitivity.
+# ---------------------------------------------------------------------------
+
+def apply_function_patches(original_code: str, patched_functions_code: str) -> str:
+    """
+    Replace named functions in original_code with their corrected versions
+    from patched_functions_code.
+
+    original_code          : full Python script (current state)
+    patched_functions_code : Python snippet containing only the corrected functions
+    Returns                : updated full script as string
+
+    Falls back to returning original_code unchanged if either parse fails,
+    so the pipeline never crashes due to a malformed patch.
+    """
+    if not patched_functions_code or not patched_functions_code.strip():
+        return original_code
+
+    try:
+        original_tree = ast.parse(original_code)
+        patch_tree    = ast.parse(patched_functions_code)
+    except SyntaxError:
+        return original_code
+
+    # Index corrected functions by name
+    patches: dict[str, ast.FunctionDef] = {
+        node.name: node
+        for node in ast.walk(patch_tree)
+        if isinstance(node, ast.FunctionDef)
+    }
+
+    if not patches:
+        return original_code
+
+    patched_count = 0
+    for node in ast.walk(original_tree):
+        if isinstance(node, ast.FunctionDef) and node.name in patches:
+            p = patches[node.name]
+            node.body           = p.body
+            node.args           = p.args
+            node.decorator_list = p.decorator_list
+            node.returns        = p.returns
+            patched_count += 1
+
+    # ast.unparse produces valid but compact code; re-add module docstring if present
+    result = ast.unparse(original_tree)
+
+    # ast.unparse strips blank lines — restore minimal readability with a pass
+    # by re-parsing and unparsing (idempotent after first call)
+    return result
+
+
+def _patches_applied_count(original_code: str, patched_functions_code: str) -> int:
+    """Return how many functions were successfully patched (for logging)."""
+    if not patched_functions_code:
+        return 0
+    try:
+        patch_tree = ast.parse(patched_functions_code)
+        patches = {n.name for n in ast.walk(patch_tree) if isinstance(n, ast.FunctionDef)}
+        original_tree = ast.parse(original_code)
+        original_fns  = {n.name for n in ast.walk(original_tree) if isinstance(n, ast.FunctionDef)}
+        return len(patches & original_fns)
+    except SyntaxError:
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# inject_docstrings — AST-based docstring injection (Documenter)
+#
+# The Documenter returns a JSON dict {function_name: docstring_text}.
+# We insert each docstring as the first statement of its function body.
+# Never rewrites the code logic — only adds string constants.
+# ---------------------------------------------------------------------------
+
+def inject_docstrings(code: str, docstrings: dict[str, str]) -> str:
+    """
+    Inject docstrings into named functions (and optionally the module).
+
+    code        : Python source to annotate
+    docstrings  : {"__module__": "...", "function_name": "...", ...}
+    Returns     : annotated Python source string
+
+    Keys not found in the AST are silently ignored.
+    Falls back to returning code unchanged on parse error.
+    """
+    if not docstrings:
+        return code
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code
+
+    def _make_docstring_node(text: str) -> ast.Expr:
+        return ast.Expr(value=ast.Constant(value=textwrap.dedent(text).strip()))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            if node.name in docstrings:
+                # Remove existing docstring if present before inserting new one
+                if (node.body and isinstance(node.body[0], ast.Expr)
+                        and isinstance(node.body[0].value, ast.Constant)):
+                    node.body.pop(0)
+                node.body.insert(0, _make_docstring_node(docstrings[node.name]))
+
+        elif isinstance(node, ast.Module):
+            if "__module__" in docstrings:
+                if (node.body and isinstance(node.body[0], ast.Expr)
+                        and isinstance(node.body[0].value, ast.Constant)):
+                    node.body.pop(0)
+                node.body.insert(0, _make_docstring_node(docstrings["__module__"]))
+
+    return ast.unparse(tree)

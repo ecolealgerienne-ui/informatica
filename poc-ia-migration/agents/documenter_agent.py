@@ -13,6 +13,12 @@ Steps:
 import json
 import subprocess
 import sys
+from pathlib import Path
+
+# Ensure project root is on path for sibling-agent imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from agents.utils import inject_docstrings
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -88,26 +94,31 @@ For EACH transformation, produce a section like this:
 # Prompt 2 — Annotated code
 # ---------------------------------------------------------------------------
 
-ANNOTATION_PROMPT = """You are a senior Python ETL engineer adding inline documentation to a batch script.
+DOCSTRINGS_PROMPT = """You are a senior Python ETL engineer writing docstrings for a batch script.
 
 ## CRITICAL OUTPUT RULE
-Your response MUST be a single ```python ... ``` block with the fully annotated script.
-NO prose outside the block. Start with ```python, end with ```.
+Respond ONLY with a JSON object. No markdown, no prose outside the JSON.
 
 ## Task
-Add clear, meaningful inline comments to the Python code below using the workflow explanation as your source.
-Comments must be:
-- In French for business rules (WHY this step exists)
-- In English for technical implementation notes (HOW it works)
-- Concise — one line max per comment, no multi-paragraph blocks
-- Placed ABOVE the relevant line or block, not at end of line (except for very short notes)
+For each function in the Python code below, write a concise docstring (2-5 lines max).
+Also write a module-level docstring under the key "__module__".
 
-## DO NOT change any logic — only add comments. The code must remain functionally identical.
+Docstrings must:
+- Start with one sentence in French describing the BUSINESS purpose (WHY this function exists)
+- Follow with one English sentence on HOW it works technically
+- Be concise — no multi-paragraph blocks
 
-## Workflow explanation (source of truth for comments)
+## Required JSON format
+{{
+  "__module__": "Module-level description...",
+  "function_name_1": "Business purpose in French. Technical note in English.",
+  "function_name_2": "..."
+}}
+
+## Workflow explanation (source of truth for business context)
 {explanation}
 
-## Python code to annotate
+## Python code to document
 ```python
 {code}
 ```
@@ -135,28 +146,6 @@ def call_claude(prompt: str, timeout: int = 300, max_tokens: int = 3000) -> str:
     return result.stdout.strip()
 
 
-def extract_code(raw: str) -> str:
-    if "```python" in raw:
-        start = raw.find("```python") + len("```python")
-        end   = raw.find("```", start)
-        if end != -1:
-            return raw[start:end].strip()
-    if "```" in raw:
-        start = raw.find("```") + 3
-        nl    = raw.find("\n", start)
-        if nl != -1:
-            start = nl + 1
-        end = raw.find("```", start)
-        if end != -1:
-            return raw[start:end].strip()
-    lines = raw.splitlines()
-    for i, line in enumerate(lines):
-        s = line.strip()
-        if s.startswith('"""') or s.startswith("import ") or s.startswith("# "):
-            return "\n".join(lines[i:]).strip()
-    return raw.strip()
-
-
 # ---------------------------------------------------------------------------
 # DocumenterAgent class
 # ---------------------------------------------------------------------------
@@ -175,13 +164,26 @@ class DocumenterAgent:
         return call_claude(prompt, max_tokens=3000)
 
     def annotate_code(self, explanation: str) -> str:
-        prompt = ANNOTATION_PROMPT.format(
+        prompt = DOCSTRINGS_PROMPT.format(
             explanation=explanation,
             code=self.code,
         )
-        print("[Documenter] Annotating Python code with inline comments...")
-        raw = call_claude(prompt)
-        return extract_code(raw)
+        print("[Documenter] Generating docstrings dict (JSON)...")
+        raw = call_claude(prompt, max_tokens=1500)
+
+        # Extract JSON from response
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = "\n".join(l for l in raw.splitlines() if not l.startswith("```"))
+        start, end = raw.find("{"), raw.rfind("}") + 1
+        try:
+            docstrings = json.loads(raw[start:end])
+        except (json.JSONDecodeError, ValueError):
+            print("[Documenter] ⚠️  JSON parse failed — returning code without docstrings")
+            return self.code
+
+        print(f"[Documenter] Injecting {len(docstrings)} docstrings via AST...")
+        return inject_docstrings(self.code, docstrings)
 
     def run(self) -> dict:
         explanation   = self.generate_explanation()
