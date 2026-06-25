@@ -780,6 +780,15 @@ if __name__ == "__main__":
 
 These are Phase 2 extensions once the core agent pipeline is validated.
 
+### Phase 2 — Spécification détaillée
+
+See **[PHASE2_EVOLUTIONS.md](PHASE2_EVOLUTIONS.md)** for the full Phase 2 specification covering:
+- Multi-session workflow support (`<WORKFLOWLINK>` graph parsing)
+- New OrchestratorAgent (chained session execution)
+- `_parse_workflow()` rewrite with N sessions + links + workflow variables
+- Databricks Workflows manifest generation
+- Per-agent impact analysis and effort estimates (9-12 days total)
+
 ---
 
 *Document produced for Claude Code initialisation. Start with `setup/generate_sample_xml.py` then `pipeline/run_pipeline.py`.*
