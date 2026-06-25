@@ -343,7 +343,7 @@ def call_claude(prompt: str) -> str:
         input=prompt,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=300,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Claude CLI error:\n{result.stderr}")
