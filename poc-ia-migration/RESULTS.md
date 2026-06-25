@@ -237,9 +237,9 @@ Anomalies: 8  ← 100% bruit, pas de vraie anomalie
 | Parser | 50.4s | platform=pyspark, feasibility=MEDIUM, complexity=HIGH (score=12, ~3-5j) |
 | CodeGen | 23.6s | 144 lignes générées |
 | Fixer | 54.6s | FIXED / 1 cycle |
-| Documenter | 101.4s | 136 lignes explication + 7 docstrings via AST |
-| QA | 0.3s | PASS — 0 anomalie, 0 appel LLM |
-| **Total** | **230.5s** | ✅ PASS |
+| Documenter | 102.4s | 144 lignes explication + 7 docstrings via AST |
+| QA | 0.5s | PASS — 0 anomalie, 0 appel LLM |
+| **Total** | **230.5s** (steps 1-3) + **102.9s** (step 4-5) | ✅ PASS |
 
 **Données de test** : fixtures synthétiques (10 cols source, 4 cols REF_CATEGORY)
 
