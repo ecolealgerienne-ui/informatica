@@ -6,6 +6,167 @@
 
 ---
 
+## Dimensions Informatica PowerCenter non couvertes & Impact Control-M
+
+### 1. Ce que nos XMLs contiennent réellement
+
+Analyse des 9 fichiers XML de la campagne :
+
+| Concept Informatica | Présent dans nos XMLs | Pris en compte par le pipeline |
+|---|---|---|
+| `<MAPPING>` — transformations | ✅ Tous les fichiers | ✅ Parser + CodeGen complet |
+| `<SOURCE>` / `<TARGET>` | ✅ Tous les fichiers | ✅ Parser complet |
+| `<TRANSFORMATION>` (SQ, Expression, Filter, Lookup, Joiner, Aggregator, Normalizer) | ✅ Tous les fichiers | ✅ Parser + CodeGen |
+| `<CONNECTOR>` — flux entre transformations | ✅ Tous les fichiers (35-54 connecteurs) | ✅ Parser complet |
+| `<MAPPINGVARIABLE>` ($$BATCH_DATE, $$MAX_ROWS, $$TXN_FILE...) | ✅ 7/9 fichiers | ⚠️ Partiel — $$BATCH_DATE converti en env var, les autres ignorés |
+| `<WORKFLOW>` — enveloppe + attributs | ✅ Tous les fichiers | ⚠️ Partiel — nom extrait, CONCURRENT/MAXERRORS ignorés |
+| `<SESSION>` — config d'exécution | ✅ Tous les fichiers | ❌ Ignoré (connexions source/target, "Treat source rows as") |
+| `<WORKLET>` — workflow réutilisable | ✅ wf_smoke_test | ❌ Ignoré |
+| `<SCHEDULER>` — planification interne Informatica | ✅ wf_clients_dim | ❌ Ignoré (remplacé par Control-M chez le client) |
+| `SERVERNAME` — serveur d'intégration | ✅ Tous (INT_SERVER) | ❌ Ignoré |
+| `CONCURRENT="NO"` — exécution séquentielle forcée | ✅ 7/9 fichiers | ❌ Ignoré |
+| Partitioning / pushdown optimization | ❌ Absent de nos XMLs | Non applicable |
+| Pre/Post-session commands | ❌ Absent de nos XMLs | Non applicable |
+
+---
+
+### 2. Dimensions Informatica non couvertes — Analyse d'impact
+
+#### 2a. Les Sessions (`<SESSION>`)
+
+Une Session dans Informatica est la **couche d'exécution** : elle lie un mapping à des connexions physiques (Oracle, fichier, JDBC), définit le comportement en cas d'erreur, le mode d'écriture (Insert / Update / Data Driven), les logs de session.
+
+**Ce que nos XMLs contiennent :**
+```xml
+<SESSION NAME="s_transactions_hist" MAPPINGNAME="m_transactions_hist">
+  <SESSIONATTRIBUTE NAME="$Source connection value" VALUE="SRC_ORACLE_PROD"/>
+  <SESSIONATTRIBUTE NAME="$Target connection value" VALUE="TGT_DWH"/>
+  <SESSIONATTRIBUTE NAME="Treat source rows as"     VALUE="Data Driven"/>
+</SESSION>
+```
+
+**Impact sur notre POC :**
+- `$Source connection value = SRC_ORACLE_PROD` → le pipeline suppose que la source est un CSV (fixture). En production, c'est une connexion Oracle. **La gestion des connexions est absente du code généré.**
+- `Treat source rows as = Data Driven` → mode SCD2 / upsert conditionnel. Le CodeGen génère une logique de transformation mais sans le routage INSERT/UPDATE/DELETE natif de PowerCenter. **C'est la cause du crash wf_accounts_scd2.**
+- Logs de session (`.log`) → non reproduits. En Databricks, c'est remplacé par les logs Spark.
+
+**Ce qu'il faudrait faire :** Parser les `SESSIONATTRIBUTE` et les injecter dans le canonical JSON comme métadonnées d'exécution.
+
+---
+
+#### 2b. Les Mapping Variables (`<MAPPINGVARIABLE>`)
+
+Les variables de mapping sont des paramètres persistants entre les runs : compteurs, dates de dernière exécution, seuils.
+
+**Ce que nos XMLs contiennent :**
+```xml
+<MAPPINGVARIABLE NAME="$$BATCH_DATE"   DATATYPE="string"  DEFAULTVALUE="2026-06-24"/>
+<MAPPINGVARIABLE NAME="$$MAX_ROWS"     DATATYPE="decimal" DEFAULTVALUE="500000"/>
+<MAPPINGVARIABLE NAME="$$TXN_FILE"     DATATYPE="string"  DEFAULTVALUE="data/transactions.csv"/>
+```
+
+**Impact sur notre POC :**
+- `$$BATCH_DATE` → converti en `BATCH_DATE` env var ✅
+- `$$MAX_ROWS` (limite ROWNUM de sécurité volume) → **ignoré**. En production, ce paramètre protège contre les extractions massives accidentelles. Son absence peut provoquer des OOM en Databricks sur de gros volumes.
+- `$$TXN_FILE`, `$$SCORING_FILE` → convertis en `*_FILE` env vars ✅ pour les fixtures, mais la **valeur par défaut** du XML n'est pas utilisée comme fallback.
+
+**Ce qu'il faudrait faire :** Parser toutes les `MAPPINGVARIABLE`, les injecter dans le canonical JSON, et générer un bloc `os.environ.get("MAX_ROWS", "500000")` dans le code produit.
+
+---
+
+#### 2c. Les Worklets (`<WORKLET>`)
+
+Un Worklet est un **workflow réutilisable** embarqué dans un workflow parent. Il encapsule une séquence de sessions avec sa propre logique de branchement conditionnel.
+
+**Présence dans nos XMLs :** wf_smoke_test uniquement.
+
+**Impact :** Un worklet peut représenter un bloc de traitement commun à 10-20 workflows (ex : "initialisation des paramètres", "notification d'erreur"). Si le client a des worklets partagés, notre pipeline ne les résout pas — il verrait une tâche vide sans mapping.
+
+**Ce qu'il faudrait faire :** Détecter les `<WORKLET>`, résoudre la référence vers le worklet réutilisable, et l'inliner dans le canonical JSON du workflow parent.
+
+---
+
+#### 2d. Multi-source et parallélisme (`CONCURRENT`)
+
+Informatica PowerCenter peut exécuter plusieurs sessions **en parallèle** dans un même workflow (CONCURRENT="YES") ou les forcer en séquence (CONCURRENT="NO").
+
+**Ce que nos XMLs contiennent :** `CONCURRENT="NO"` sur tous les workflows testés.
+
+**Impact sur notre POC :** Pas de problème sur la campagne actuelle. Mais si un workflow client a `CONCURRENT="YES"` avec 3 sessions en parallèle (ex : chargement de 3 dimensions simultané), notre pipeline génèrerait 3 scripts séquentiels là où il faudrait du `concurrent.futures` ou des jobs Databricks parallèles.
+
+---
+
+### 3. Control-M — Ce que ça change
+
+#### 3a. Ce qu'est Control-M dans ce contexte
+
+Control-M est le **scheduler d'entreprise** qui pilote l'exécution des workflows Informatica. Dans l'architecture du client :
+
+```
+Control-M
+  └─→ lance wf_clients_dim (Informatica) à 02h00
+  └─→ attend la fin
+  └─→ si succès → lance wf_orders_fact
+  └─→ si échec → alerte + arrêt chaîne
+```
+
+Le `<SCHEDULER>` dans le XML Informatica est **la définition interne** de la planification (fréquence, heure de déclenchement). En pratique, chez ce client, **c'est Control-M qui fait ce travail**, pas le scheduler Informatica — le `<SCHEDULER>` du XML est donc probablement vide ou non utilisé (ce que nos XMLs confirment : wf_clients_dim a un `<SCHEDULER>` vide).
+
+#### 3b. Ce que Control-M fait et que notre pipeline ne génère pas
+
+| Fonctionnalité Control-M | Présent dans le code généré | Impact |
+|---|---|---|
+| Déclenchement planifié (cron) | ❌ | Le script Python n'a pas de cron intégré — c'est Control-M ou Databricks Workflows qui planifie |
+| Chaînage conditionnel (succès → suite) | ❌ | Le script sort avec code 0 (succès) ou 1 (échec) — Control-M lit ce code retour |
+| Gestion des dépendances entre jobs | ❌ | Control-M gère ça — le script n'a pas besoin de le savoir |
+| Alertes / notifications en cas d'échec | ❌ | Control-M envoie les alertes — le script sort avec code d'erreur |
+| Paramètres injectés au lancement | ⚠️ Partiel | Control-M peut injecter `BATCH_DATE` en variable — le script lit `os.environ["BATCH_DATE"]` ✅ |
+| Logs centralisés | ❌ | Control-M collecte les logs stdout/stderr — le script écrit sur stdout ✅ |
+| Restart / recovery après crash | ❌ | Control-M gère le restart — mais si le script est idempotent (écriture atomique), c'est suffisant |
+
+#### 3c. Ce qui est compatible sans changement
+
+**Bonne nouvelle** : la migration vers Databricks Workflows (ou Azure Data Factory, ou même un cron Linux) **ne casse pas la logique Control-M** parce que notre pipeline génère des scripts avec :
+- Code retour `sys.exit(0)` / `sys.exit(1)` → Control-M lit le code retour natif ✅
+- Écriture atomique (fichier temporaire + rename) → restart idempotent ✅
+- `BATCH_DATE` en variable d'environnement → Control-M peut l'injecter ✅
+- Logs structurés sur stdout → collectés par Control-M ✅
+
+#### 3d. Ce qu'il faut prévoir pour la production
+
+En migration vers Databricks, Control-M **reste en place** ou est remplacé par **Databricks Workflows**. Dans les deux cas :
+
+```
+Option A — Conserver Control-M
+  Control-M → databricks-cli run-now (job Databricks) → script Python
+  Aucun changement dans le code généré — Control-M appelle le job via API Databricks
+
+Option B — Migrer vers Databricks Workflows
+  Databricks Workflow → Task Python → script généré par notre pipeline
+  La dépendance entre workflows (wf_clients_dim avant wf_orders_fact) devient
+  une dépendance entre Tasks dans le Databricks Workflow
+```
+
+**Ce que notre pipeline devrait générer en plus :** un fichier `workflow_manifest.json` par workflow avec les métadonnées d'orchestration (nom du job, dépendances, variables d'environnement, code retour attendu) — suffisant pour auto-générer la config Databricks Workflow ou le JCL Control-M.
+
+---
+
+### 4. Récapitulatif — Ce qui manque et priorité
+
+| Dimension manquante | Criticité production | Effort fix | Priorité |
+|---|---|---|---|
+| Sessions : connexions Oracle → Databricks | CRITIQUE | Moyen (parser + CodeGen template connexion) | P0 |
+| Mapping Variables complètes ($$MAX_ROWS, etc.) | HAUTE | Faible (parser + env var generation) | P1 |
+| `Treat source rows as = Data Driven` (SCD2 upsert) | HAUTE | Élevé (logique INSERT/UPDATE/DELETE) | P1 |
+| Worklets réutilisables | MOYENNE | Moyen (résolution de référence) | P2 |
+| Manifest orchestration (Control-M / Databricks Workflows) | MOYENNE | Faible (nouveau agent GeneratorAgent) | P2 |
+| CONCURRENT="YES" → parallélisme Python | FAIBLE | Élevé | P3 |
+| Pre/Post-session commands | FAIBLE | Faible | P3 |
+
+> **Conclusion** : Pour un POC de validation des patterns de transformation, notre pipeline est complet. Pour une migration production, les points P0 et P1 sont bloquants : les connexions Oracle et le mode Data Driven (SCD2) doivent être couverts avant de livrer des scripts exécutables sur l'infrastructure réelle du client.
+
+---
+
 ## Position par rapport à l'existant
 
 ### Avant ce POC — Le processus manuel
