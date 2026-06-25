@@ -74,6 +74,7 @@ def _parse_sources(folder: ET.Element) -> list[dict]:
 
 def _parse_targets(folder: ET.Element) -> list[dict]:
     targets = []
+    # Form 1: explicit <TARGET> elements (most common)
     for tgt in folder.findall("TARGET"):
         targets.append({
             "name":     tgt.get("NAME"),
@@ -82,6 +83,17 @@ def _parse_targets(folder: ET.Element) -> list[dict]:
             "db_type":  tgt.get("DATABASETYPE"),
             "fields":   _parse_fields(tgt, "TARGETFIELD"),
         })
+    # Form 2: <TRANSFORMATION TYPE="Target Definition"> (alternative XML structure)
+    if not targets:
+        for trf in folder.findall("TRANSFORMATION"):
+            if trf.get("TYPE") == "Target Definition":
+                targets.append({
+                    "name":     trf.get("NAME"),
+                    "owner":    None,
+                    "database": None,
+                    "db_type":  "Oracle",
+                    "fields":   _parse_fields(trf, "TRANSFORMFIELD"),
+                })
     return targets
 
 

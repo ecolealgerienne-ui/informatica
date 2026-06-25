@@ -196,8 +196,14 @@ def _fields_from_canonical(canonical: dict) -> tuple[list[str], dict[str, list[s
                     p["name"] for p in t.get("ports", [])
                     if p.get("name") and p.get("port_type", "").upper() != "INPUT"
                 ]
-                if output_ports:
-                    cols_by_table[ref] = output_ports
+                # Also extract physical join-key columns from the lookup condition
+                # e.g. "IN_CATEGORY = CATEGORY_RAW" → CATEGORY_RAW is a physical column
+                # in the ref table that must exist in the fixture
+                condition = t.get("condition", "")
+                rhs_cols = re.findall(r'=\s*([A-Z_][A-Z0-9_]+)', condition.upper())
+                all_ref_cols = list(dict.fromkeys(output_ports + rhs_cols))
+                if all_ref_cols:
+                    cols_by_table[ref] = all_ref_cols
 
     # Fallback: SQ output ports if no SOURCE table fields found
     if not source_cols:
