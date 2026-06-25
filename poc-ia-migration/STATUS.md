@@ -820,11 +820,71 @@ Fallback : si JSON parse échoue → code original retourné inchangé (pipeline
 
 ---
 
+---
+
+### Étape 18 — Run #4 wf_clients_dim + identification bug fixtures (`59eab80`)
+
+**Objectif** : Mesurer les gains réels des optimisations Semaines 1-3 sur le workflow de référence (`--force`).
+
+**Résultats Run #4 vs baseline Run #3**
+
+| Étape | Run #3 (avant) | Run #4 (optimisé) | Gain |
+|---|---|---|---|
+| Parser | ~70s | 36.6s | −48% |
+| CodeGen | ~140s | 24.1s | −83% |
+| Fixer | ~50s | 19.6s | −61% |
+| Documenter | ~130s | 65.0s | −50% |
+| QA | ~30s | 0.3s | −99% |
+| **Total** | **211.9s** | **145.7s** | **−31% (−66s)** |
+
+**Gains observés** : RAG −39.7% (13 545 / 22 465 chars), 8 docstrings AST, QA quasi-instantané.
+
+**Bug identifié : `KeyError: 'LIBELLE'` (CRASH QA)**
+
+- **Cause** : les fixtures `SOURCE_FILE` et `REF_STATUT_FILE` étaient générées avec le même superset de tous les ports → `LIBELLE` présent dans les deux → après `merge()`, pandas renomme en `LIBELLE_x`/`LIBELLE_y` → script accède à `dim["LIBELLE"]` → `KeyError`
+- **Diagnostic** : les colonnes de chaque table source sont connues dès le départ dans le XML (`<SOURCE NAME="REF_STATUT">` → `LIBELLE`, `LIBELLE_COURT`, `STATUT_CODE`) — le QA ne les utilisait pas
+- **Fix** : `_fields_from_canonical()` indexe maintenant TOUTES les sources (pas juste la première) ; `_build_fixture_env()` mappe `REF_STATUT_FILE → canonical["sources"]["REF_STATUT"].fields` au lieu du superset global
+
+---
+
+### Étape 19 — Refactoring générique : suppression de tout hardcoding XML-spécifique (`5276c82`)
+
+**Problème** : audit complet révèle 3 agents avec du code hardcodé pour `wf_clients_dim` qui ne fonctionne pas sur d'autres workflows.
+
+**Décision D16 : zéro connaissance métier dans le code des agents**
+
+Les agents ne doivent connaître aucun nom de colonne, de table ou de transformation spécifique à un XML. Toute l'information métier vient du canonical JSON extrait par le Parser.
+
+**Changements par fichier**
+
+| Fichier | Avant | Après |
+|---|---|---|
+| `qa_agent.py` | `TOLERANCE = {"CLIENT_ID": ..., "NOM_CLEAN": ...}` hardcodé | `_build_tolerance_from_canonical(canonical)` — dérivé des types de champs cibles XML |
+| `qa_agent.py` | `set_index("CLIENT_ID")` | `set_index(pk_col)` via `_detect_primary_key()` |
+| `qa_agent.py` | `"CLIENT_IDs absents"`, `{"client_id": cid}` | `f"{pk_col}s absents"`, `{"pk_value": cid}` |
+| `qa_agent.py` | Fallback legacy `golden_dataset.csv` / `ref_statut.csv` | Supprimé — seul `BATCH_DATE` + `OUTPUT_FILE` injectés si pas de canonical |
+| `codegen_agent.py` | Instructions avec `NOM_CLEAN`, `REF_STATUT_FILE`, 12 colonnes listées | Instructions génériques : "lire sources/targets depuis le canonical JSON" |
+| `fixer_agent.py` | Checklist item 7 : `STATUT_LIBELLE must come from lookup` | Règle générique : colonnes dupliquées après merge → vérifier suffixes `_x`/`_y` |
+
+**Logique de tolérance QA (générique)**
+
+```python
+def _build_tolerance_from_canonical(canonical):
+    # DW_LOAD_DATE, *_ETL_DATE, *_LOAD_TS → exclude
+    # AGE, AGE_ANS, NB_ANNEES → numeric ±1 (edge case anniversaire)
+    # number, decimal, float, int → numeric ±0.01
+    # tout le reste → exact
+```
+
+**Le rapport JSON QA inclut maintenant `tolerance` et `primary_key`** pour traçabilité complète.
+
+---
+
 ### Prochaine action immédiate
 
 | Priorité | Tâche |
 |---|---|
-| P0 | Relancer wf_clients_dim avec les optimisations pour mesurer les gains réels vs baseline |
-| P0 | Terminer les 5 XMLs restants : wf_products_dim, wf_sales_monthly, wf_unconnected_lkp, wf_xml_normalizer, wf_transactions_hist |
+| P0 | Tester wf_products_dim (prochain dans la campagne) |
+| P0 | Terminer les XMLs restants : wf_sales_monthly, wf_unconnected_lkp, wf_xml_normalizer, wf_transactions_hist |
 | P1 | Référencer `etl_utils.py` dans les prompts CodeGen + RAG Base |
 | P2 | Implémenter LLM-as-a-Judge (6ème agent, Phase 2) |
