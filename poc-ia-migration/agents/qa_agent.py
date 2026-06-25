@@ -23,28 +23,64 @@ from pathlib import Path
 
 import pandas as pd
 
-INPUT_CODE_PATH = Path("output/03_fixed_code/wf_clients_dim_documented.py")
+INPUT_CODE_PATH = Path("output/03_fixed_code/wf_workflow_documented.py")
 EXPECTED_PATH   = Path("tests/expected_output.csv")
 OUTPUT_DIR      = Path("output/04_data_diff_report")
 ACTUAL_PATH     = OUTPUT_DIR / "actual_output.csv"
 
-# Tolerance matrix
-TOLERANCE = {
-    "CLIENT_ID":      {"type": "exact"},
-    "NOM_CLEAN":      {"type": "exact"},
-    "PRENOM_CLEAN":   {"type": "exact"},
-    "AGE":            {"type": "numeric", "tolerance": 1},
-    "STATUT_CODE":    {"type": "exact"},
-    "STATUT_LIBELLE": {"type": "exact"},
-    "EMAIL_LOWER":    {"type": "exact"},
-    "SEGMENT_CODE":   {"type": "exact"},
-    "PAYS_CODE":      {"type": "exact"},
-    "DATE_CREATION":  {"type": "exact"},
-    "BATCH_DATE":     {"type": "exact"},
-    "DW_LOAD_DATE":   {"type": "exclude"},
-}
-
 MAX_SAMPLE = 3  # max anomaly samples sent to LLM per column
+
+# Column name patterns for tolerance inference (derived from canonical target fields)
+_EXCLUDE_SUFFIXES = ("LOAD_DATE", "ETL_DATE", "INSERT_DATE", "UPDATE_DATE", "LOAD_TS", "ETL_TS")
+_EXCLUDE_EXACT    = {"DW_LOAD_DATE", "CREATED_AT", "UPDATED_AT"}
+_AGE_PATTERNS     = {"AGE", "AGE_ANS", "NB_ANNEES", "ANNEES"}
+_NUMERIC_TYPES    = {"number", "decimal", "float", "double", "numeric", "integer", "bigint", "int"}
+
+
+def _build_tolerance_from_canonical(canonical: dict) -> dict:
+    """
+    Derive column tolerance matrix from canonical target field definitions.
+    Rules:
+      - Load-timestamp columns (DW_LOAD_DATE, *_ETL_DATE …) → exclude
+      - Age calculation columns (AGE, AGE_ANS …) → numeric ±1 (birthday edge case)
+      - Numeric datatypes (number, decimal, float …) → numeric ±0.01
+      - Everything else → exact string match
+    Falls back to {"*": {"type": "exact"}} if canonical has no targets.
+    """
+    tolerance: dict = {}
+    for tgt in canonical.get("targets", []):
+        for field in tgt.get("fields", []):
+            name  = field.get("name", "").upper()
+            dtype = field.get("datatype", "").lower()
+            if not name:
+                continue
+            if name in _EXCLUDE_EXACT or any(name.endswith(p) for p in _EXCLUDE_SUFFIXES):
+                tolerance[name] = {"type": "exclude"}
+            elif name in _AGE_PATTERNS:
+                tolerance[name] = {"type": "numeric", "tolerance": 1}
+            elif any(t in dtype for t in _NUMERIC_TYPES):
+                tolerance[name] = {"type": "numeric", "tolerance": 0.01}
+            else:
+                tolerance[name] = {"type": "exact"}
+    return tolerance or {"*": {"type": "exact"}}
+
+
+def _detect_primary_key(canonical: dict, tolerance: dict) -> str:
+    """
+    Detect the primary key column to use as compare() index.
+    Priority: explicit is_primary_key flag → *_ID/*_SK/*_KEY suffix → first column.
+    """
+    for tgt in canonical.get("targets", []):
+        for field in tgt.get("fields", []):
+            if field.get("is_primary_key") or field.get("keytype", "").upper() not in ("NOT A KEY", "", "NONE"):
+                name = field.get("name", "")
+                if name:
+                    return name.upper()
+    # Heuristic: first column whose name ends with a key suffix
+    for name in tolerance:
+        if any(name.endswith(s) for s in ("_ID", "_SK", "_KEY", "_CODE")):
+            return name
+    return next(iter(tolerance), "ID")
 
 
 # ---------------------------------------------------------------------------
@@ -261,11 +297,9 @@ def execute_batch(code_path: str, canonical: dict | None = None, workflow_name: 
         fixtures = _build_fixture_env(code_path, canonical, tmp_dir, workflow_name)
         env.update(fixtures)
     else:
-        # Legacy fallback: original hardcoded paths for wf_clients_dim
-        env["SOURCE_FILE"]     = "tests/golden_dataset.csv"
-        env["REF_STATUT_FILE"] = "tests/ref_statut.csv"
-        env["OUTPUT_FILE"]     = str(ACTUAL_PATH)
-        env["BATCH_DATE"]      = "2023-01-01"
+        # No canonical JSON — minimal env, script must provide its own defaults
+        env["OUTPUT_FILE"] = str(ACTUAL_PATH)
+        env["BATCH_DATE"]  = "2023-01-01"
 
     print(f"[QA] Executing batch: {code_path}")
     result = subprocess.run(
@@ -290,9 +324,9 @@ def normalise(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def compare(actual: pd.DataFrame, expected: pd.DataFrame) -> dict:
-    actual   = normalise(actual.copy()).set_index("CLIENT_ID").sort_index()
-    expected = normalise(expected.copy()).set_index("CLIENT_ID").sort_index()
+def compare(actual: pd.DataFrame, expected: pd.DataFrame, pk_col: str, tolerance: dict) -> dict:
+    actual   = normalise(actual.copy()).set_index(pk_col).sort_index()
+    expected = normalise(expected.copy()).set_index(pk_col).sort_index()
 
     anomalies   = []
     col_results = {}
@@ -304,16 +338,16 @@ def compare(actual: pd.DataFrame, expected: pd.DataFrame) -> dict:
 
     if missing_ids:
         anomalies.append({"type": "MISSING_ROWS", "count": len(missing_ids),
-                          "detail": f"CLIENT_IDs absents: {missing_ids[:10]}"})
+                          "detail": f"{pk_col}s absents: {missing_ids[:10]}"})
     if extra_ids:
         anomalies.append({"type": "EXTRA_ROWS", "count": len(extra_ids),
-                          "detail": f"CLIENT_IDs en surplus: {extra_ids[:10]}"})
+                          "detail": f"{pk_col}s en surplus: {extra_ids[:10]}"})
 
-    for col, rule in TOLERANCE.items():
+    for col, rule in tolerance.items():
         if rule["type"] == "exclude":
             col_results[col] = {"status": "EXCLUDED", "anomalies": 0}
             continue
-        if col == "CLIENT_ID":
+        if col == pk_col:
             col_results[col] = {"status": "OK", "anomalies": 0}
             continue
         if col not in actual.columns or col not in expected.columns:
@@ -328,16 +362,16 @@ def compare(actual: pd.DataFrame, expected: pd.DataFrame) -> dict:
 
             if rule["type"] == "exact":
                 if str(va).strip() != str(ve).strip():
-                    col_anomalies.append({"client_id": cid, "actual": va, "expected": ve})
+                    col_anomalies.append({"pk_value": cid, "actual": va, "expected": ve})
 
             elif rule["type"] == "numeric":
                 try:
                     diff = abs(float(va) - float(ve))
                     if diff > rule["tolerance"]:
-                        col_anomalies.append({"client_id": cid, "actual": va,
+                        col_anomalies.append({"pk_value": cid, "actual": va,
                                               "expected": ve, "diff": diff})
                 except (ValueError, TypeError):
-                    col_anomalies.append({"client_id": cid, "actual": va,
+                    col_anomalies.append({"pk_value": cid, "actual": va,
                                           "expected": ve, "error": "non-numeric"})
 
         status = "OK" if not col_anomalies else "ANOMALY"
@@ -351,7 +385,7 @@ def compare(actual: pd.DataFrame, expected: pd.DataFrame) -> dict:
                 "type":    "VALUE_MISMATCH",
                 "column":  col,
                 "count":   len(col_anomalies),
-                "samples": col_anomalies[:3],
+                "samples": [{"pk_value": d["pk_value"], "actual": d["actual"], "expected": d["expected"]} for d in col_anomalies[:3]],
             })
 
     return {
@@ -516,9 +550,9 @@ def extract_json(raw: str) -> dict:
     return json.loads(raw[start:end])
 
 
-def interpret_with_claude(summary: dict) -> dict:
+def interpret_with_claude(summary: dict, tolerance: dict) -> dict:
     prompt = NARRATIVE_PROMPT.format(
-        tolerance=json.dumps(TOLERANCE, indent=2),
+        tolerance=json.dumps(tolerance, indent=2),
         summary=json.dumps(summary, indent=2),
     )
     print("[QA] Calling Claude Code for anomaly interpretation (compact summary only)...")
@@ -607,9 +641,9 @@ def _build_stratified_html(stratified: dict) -> str:
         html += f"<h3>Colonne <code>{col}</code> — {data['total_anomalies']} anomalie(s)</h3>"
         for bucket_name, rows in data["buckets"].items():
             html += f"<p><strong>Pattern : {bucket_name}</strong></p>"
-            html += "<table><tr><th>CLIENT_ID</th><th>Valeur obtenue</th><th>Valeur attendue</th></tr>"
+            html += "<table><tr><th>Clé</th><th>Valeur obtenue</th><th>Valeur attendue</th></tr>"
             for r in rows:
-                html += f"<tr><td>{r['client_id']}</td><td>{r['actual']}</td><td>{r['expected']}</td></tr>"
+                html += f"<tr><td>{r['pk_value']}</td><td>{r['actual']}</td><td>{r['expected']}</td></tr>"
             html += "</table>"
     return html
 
@@ -621,7 +655,8 @@ def build_html(report: dict) -> str:
     verdict    = narrative.get("overall_verdict", "FAIL")
 
     col_rows = ""
-    for col, rule in TOLERANCE.items():
+    tolerance = report.get("tolerance", {})
+    for col, rule in tolerance.items():
         result      = diff["columns"].get(col, {})
         status      = result.get("status", "UNKNOWN")
         n_anom      = result.get("anomalies", 0)
@@ -647,7 +682,7 @@ def build_html(report: dict) -> str:
         anomaly_details += f'<br>{anom.get("detail", "")} ({anom.get("count", "")} cas)'
         if "samples" in anom:
             for s in anom["samples"][:2]:
-                anomaly_details += f'<br>&nbsp;&nbsp;CLIENT_ID={s["client_id"]} | attendu={s.get("expected")} | obtenu={s.get("actual")}'
+                anomaly_details += f'<br>&nbsp;&nbsp;clé={s.get("pk_value")} | attendu={s.get("expected")} | obtenu={s.get("actual")}'
         anomaly_details += "</div>"
 
     recommendations = "\n".join(f"<li>{r}</li>" for r in narrative.get("recommendations", ["Aucune action requise."]))
@@ -695,6 +730,11 @@ class QAAgent:
         self.workflow_name = workflow_name
 
     def run(self) -> dict:
+        # Build tolerance matrix and primary key from canonical JSON (generic, workflow-agnostic)
+        tolerance = _build_tolerance_from_canonical(self.canonical) if self.canonical else {"*": {"type": "exact"}}
+        pk_col    = _detect_primary_key(self.canonical, tolerance) if self.canonical else "ID"
+        print(f"[QA] Tolerance matrix: {len(tolerance)} columns | PK: {pk_col}")
+
         actual, crash_error = execute_batch(self.code_path, self.canonical, self.workflow_name)
 
         # --- CRASH: script failed to execute ---
@@ -743,7 +783,7 @@ class QAAgent:
         if expected_file.exists():
             expected   = pd.read_csv(expected_file, dtype=str)
             print(f"[QA] Actual: {len(actual)} rows | Expected: {len(expected)} rows")
-            diff       = compare(actual, expected)
+            diff       = compare(actual, expected, pk_col, tolerance)
             stratified = build_stratified_samples(diff)
         else:
             print(f"[QA] No expected file ({self.expected_path}) — execution-only QA")
@@ -765,7 +805,7 @@ class QAAgent:
             print("[QA] No anomalies — skipping LLM call")
             narrative = auto_pass_narrative(summary)
         else:
-            narrative = interpret_with_claude(summary)
+            narrative = interpret_with_claude(summary, tolerance)
 
         report = {
             "workflow_id":        self.workflow_name,
@@ -773,6 +813,8 @@ class QAAgent:
             "batch_date":         os.getenv("BATCH_DATE", "2026-01-01"),
             "code_executed":      self.code_path,
             "expected_file":      self.expected_path,
+            "tolerance":          tolerance,
+            "primary_key":        pk_col,
             "diff":               diff,
             "stratified_samples": stratified,
             "narrative":          narrative,

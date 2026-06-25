@@ -61,22 +61,15 @@ USER_PROMPT = """Generate the complete Python batch script for this Informatica 
 {canonical_json}
 
 ## Instructions
-- Implement extract() reading from SOURCE_FILE CSV (simulating Oracle source), applying the DATE_MAJ >= BATCH_DATE filter
-- Implement lookup_statut() using df.merge() against REF_STATUT_FILE CSV
-- Implement transform() applying ALL expressions from EXP_TRANSFORM:
-    * NOM_CLEAN  = LTRIM(RTRIM(UPPER(NOM)))       → str.strip().str.upper()
-    * PRENOM_CLEAN = LTRIM(RTRIM(UPPER(PRENOM)))  → str.strip().str.upper()
-    * AGE = DATEDIFF(SYSDATE, DATE_NAISSANCE, YY) → fully vectorised age formula from RAG Base
-    * EMAIL_LOWER = LOWER(LTRIM(RTRIM(EMAIL)))    → str.strip().str.lower()
-    * BATCH_DATE_OUT = TO_DATE($$BATCH_DATE)      → pd.to_datetime(BATCH_DATE)
-    * DW_LOAD_DATE = SYSDATE                      → datetime.now()
-    * STATUT_LIBELLE passthrough from lookup
-- Implement filter_active() keeping only rows where STATUT_CODE != 'I'
-- Implement load() writing final columns to OUTPUT_FILE atomically
-- Implement main() orchestrating all steps with audit logging
-- Use env vars: BATCH_DATE, SOURCE_FILE, REF_STATUT_FILE, OUTPUT_FILE
-- Final columns in output: CLIENT_ID, NOM_CLEAN, PRENOM_CLEAN, AGE, STATUT_CODE,
-  STATUT_LIBELLE, EMAIL_LOWER, SEGMENT_CODE, PAYS_CODE, DATE_CREATION, BATCH_DATE, DW_LOAD_DATE
+- Read ALL sources, targets, transformations and connectors from the canonical JSON above
+- Implement one extract() function per source table, reading from env var *_FILE CSV paths
+- Implement one lookup_<name>() function per Lookup Procedure transformation using df.merge()
+- Implement transform() applying ALL expressions defined in Expression transformations
+- Implement filter functions for each Filter transformation found in the canonical JSON
+- Implement load() writing final target columns to OUTPUT_FILE atomically
+- Implement main() orchestrating all steps with audit logging (rows_in / rows_out per step)
+- Use BATCH_DATE env var for all date filters; use *_FILE env vars for all CSV file paths
+- Output ONLY the columns defined in the target table(s) of the canonical JSON
 """
 
 

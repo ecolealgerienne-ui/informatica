@@ -134,7 +134,7 @@ NO prose, NO explanations outside the block. Start with ```python, end with ```.
 4. Filter: MUST be a boolean mask df[condition] (NOT loop)
 5. Load: MUST write to .tmp then os.replace() (atomic swap)
 6. if df.empty: return — MUST be present after every extract step
-7. STATUT_LIBELLE must come from the lookup merge result (column LIBELLE renamed)
+7. After a lookup merge, output columns renamed by the lookup MUST be accessed via their post-merge name (check for _x/_y suffixes if a column exists in both DataFrames)
 
 Return the complete corrected script inside a ```python block.
 """
