@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE POWERMART SYSTEM "powrmart.dtd">
+<POWERMART CREATION_DATE="06/25/2026 10:00:00" REPOSITORY_VERSION="187.94">
+<REPOSITORY NAME="DEV_REPO" VERSION="187" CODEPAGE="UTF-8" DATABASETYPE="Oracle">
+<FOLDER NAME="ETL_MIGRATION" GROUP="" OWNER="admin" SHARED="NOTSHARED">
+
+  <!-- ============================================================ -->
+  <!-- SOURCE TABLE : SRC_EMPLOYES                                  -->
+  <!-- 3 colonnes — volontairement minimal pour smoke test          -->
+  <!-- ============================================================ -->
+  <SOURCE BUSINESSNAME="" DATABASETYPE="Oracle" DBDNAME="DW_SRC"
+          DESCRIPTION="Table source employés" NAME="SRC_EMPLOYES"
+          OBJECTVERSION="1" OWNERNAME="SRC" VERSIONNUMBER="1">
+    <SOURCEFIELD BUSINESSNAME="" DATATYPE="number" DEFAULTVALUE=""
+                 DESCRIPTION="" FIELDNUMBER="1" FIELDPROPERTY="0"
+                 FIELDTYPE="FRAMEWORKFIELD" HIDDEN="NO" KEYTYPE="PRIMARY KEY"
+                 LENGTH="0" LEVEL="0" NAME="EMPLOYE_ID" NULLABLE="NOTNULL"
+                 OCCURS="0" OFFSET="0" PHYSICALLENGTH="22" PHYSICALOFFSET="0"
+                 PICTURETEXT="" PRECISION="10" SCALE="0" USAGE_FLAGS=""/>
+    <SOURCEFIELD BUSINESSNAME="" DATATYPE="varchar" DEFAULTVALUE=""
+                 DESCRIPTION="" FIELDNUMBER="2" FIELDPROPERTY="0"
+                 FIELDTYPE="FRAMEWORKFIELD" HIDDEN="NO" KEYTYPE="NOT A KEY"
+                 LENGTH="0" LEVEL="0" NAME="NOM" NULLABLE="NULL"
+                 OCCURS="0" OFFSET="0" PHYSICALLENGTH="100" PHYSICALOFFSET="0"
+                 PICTURETEXT="" PRECISION="100" SCALE="0" USAGE_FLAGS=""/>
+    <SOURCEFIELD BUSINESSNAME="" DATATYPE="date/time" DEFAULTVALUE=""
+                 DESCRIPTION="" FIELDNUMBER="3" FIELDPROPERTY="0"
+                 FIELDTYPE="FRAMEWORKFIELD" HIDDEN="NO" KEYTYPE="NOT A KEY"
+                 LENGTH="0" LEVEL="0" NAME="DATE_MAJ" NULLABLE="NULL"
+                 OCCURS="0" OFFSET="0" PHYSICALLENGTH="29" PHYSICALOFFSET="0"
+                 PICTURETEXT="" PRECISION="29" SCALE="9" USAGE_FLAGS=""/>
+  </SOURCE>
+
+  <!-- ============================================================ -->
+  <!-- TARGET TABLE : TGT_EMPLOYES_CLEAN                            -->
+  <!-- ============================================================ -->
+  <TARGET BUSINESSNAME="" CONSTRAINT="" DATABASETYPE="Oracle"
+          DBDNAME="DW_TGT" DESCRIPTION="Table cible employés normalisés"
+          NAME="TGT_EMPLOYES_CLEAN" OBJECTVERSION="1"
+          OWNERNAME="TGT" TABLEOPTIONS="" VERSIONNUMBER="1">
+    <TARGETFIELD BUSINESSNAME="" DATATYPE="number" DESCRIPTION=""
+                 FIELDNUMBER="1" KEYTYPE="PRIMARY KEY" NAME="EMPLOYE_ID"
+                 NULLABLE="NOTNULL" PICTURETEXT="" PRECISION="10" SCALE="0"/>
+    <TARGETFIELD BUSINESSNAME="" DATATYPE="varchar" DESCRIPTION=""
+                 FIELDNUMBER="2" KEYTYPE="NOT A KEY" NAME="NOM_CLEAN"
+                 NULLABLE="NULL" PICTURETEXT="" PRECISION="100" SCALE="0"/>
+  </TARGET>
+
+  <!-- ============================================================ -->
+  <!-- MAPPING : m_smoke_test                                       -->
+  <!-- Pipeline : SQ → EXP → TGT                                   -->
+  <!-- ============================================================ -->
+  <MAPPING DESCRIPTION="Smoke test — normalisation NOM uniquement"
+           ISVALID="YES" NAME="m_smoke_test"
+           OBJECTVERSION="1" VERSIONNUMBER="1">
+
+    <!-- Source Qualifier — no SQL override, simple date filter -->
+    <TRANSFORMATION DESCRIPTION="Source qualifier — filtre DATE_MAJ >= BATCH_DATE"
+                    NAME="SQ_EMPLOYES" OBJECTVERSION="1"
+                    REUSABLE="NO" TYPE="Source Qualifier" VERSIONNUMBER="1">
+      <TABLEATTRIBUTE NAME="Sql Query" VALUE=""/>
+      <TABLEATTRIBUTE NAME="User Defined Join" VALUE=""/>
+      <TABLEATTRIBUTE NAME="Source Filter"
+                      VALUE="SRC_EMPLOYES.DATE_MAJ &gt;= TO_DATE('$$BATCH_DATE','YYYY-MM-DD')"/>
+      <TABLEATTRIBUTE NAME="Number Of Sorted Ports" VALUE="0"/>
+      <TRANSFORMFIELD DATATYPE="number" DEFAULTVALUE="" DESCRIPTION=""
+                      NAME="EMPLOYE_ID" PORTTYPE="OUTPUT"
+                      PRECISION="10" SCALE="0"/>
+      <TRANSFORMFIELD DATATYPE="string" DEFAULTVALUE="" DESCRIPTION=""
+                      NAME="NOM" PORTTYPE="OUTPUT"
+                      PRECISION="100" SCALE="0"/>
+      <TRANSFORMFIELD DATATYPE="date/time" DEFAULTVALUE="" DESCRIPTION=""
+                      NAME="DATE_MAJ" PORTTYPE="OUTPUT"
+                      PRECISION="29" SCALE="9"/>
+    </TRANSFORMATION>
+
+    <!-- Expression — une seule règle : UPPER(LTRIM(RTRIM(NOM))) -->
+    <TRANSFORMATION DESCRIPTION="Normalisation du nom : suppression espaces + majuscules"
+                    NAME="EXP_NORMALISE" OBJECTVERSION="1"
+                    REUSABLE="NO" TYPE="Expression" VERSIONNUMBER="1">
+      <TRANSFORMFIELD DATATYPE="number" DEFAULTVALUE="" DESCRIPTION=""
+                      EXPRESSION="EMPLOYE_ID" EXPRESSIONTYPE="GENERAL"
+                      NAME="EMPLOYE_ID" PORTTYPE="INPUT/OUTPUT"
+                      PRECISION="10" SCALE="0"/>
+      <TRANSFORMFIELD DATATYPE="string" DEFAULTVALUE="" DESCRIPTION=""
+                      EXPRESSION="NOM" EXPRESSIONTYPE="GENERAL"
+                      NAME="NOM" PORTTYPE="INPUT"
+                      PRECISION="100" SCALE="0"/>
+      <TRANSFORMFIELD DATATYPE="string" DEFAULTVALUE="" DESCRIPTION=""
+                      EXPRESSION="LTRIM(RTRIM(UPPER(NOM)))"
+                      EXPRESSIONTYPE="GENERAL"
+                      NAME="NOM_CLEAN" PORTTYPE="OUTPUT"
+                      PRECISION="100" SCALE="0"/>
+    </TRANSFORMATION>
+
+    <!-- Target Instance -->
+    <TRANSFORMATION DESCRIPTION="" NAME="TGT_EMPLOYES_CLEAN"
+                    OBJECTVERSION="1" REUSABLE="NO"
+                    TYPE="Target Definition" VERSIONNUMBER="1">
+      <TRANSFORMFIELD DATATYPE="number" DEFAULTVALUE="" DESCRIPTION=""
+                      NAME="EMPLOYE_ID" PORTTYPE="INPUT"
+                      PRECISION="10" SCALE="0"/>
+      <TRANSFORMFIELD DATATYPE="string" DEFAULTVALUE="" DESCRIPTION=""
+                      NAME="NOM_CLEAN" PORTTYPE="INPUT"
+                      PRECISION="100" SCALE="0"/>
+    </TRANSFORMATION>
+
+    <!-- Connectors -->
+    <CONNECTOR FROMFIELD="EMPLOYE_ID" FROMINSTANCE="SQ_EMPLOYES"
+               FROMINSTANCETYPE="Source Qualifier"
+               TOFIELD="EMPLOYE_ID" TOINSTANCE="EXP_NORMALISE"
+               TOINSTANCETYPE="Expression"/>
+    <CONNECTOR FROMFIELD="NOM" FROMINSTANCE="SQ_EMPLOYES"
+               FROMINSTANCETYPE="Source Qualifier"
+               TOFIELD="NOM" TOINSTANCE="EXP_NORMALISE"
+               TOINSTANCETYPE="Expression"/>
+    <CONNECTOR FROMFIELD="EMPLOYE_ID" FROMINSTANCE="EXP_NORMALISE"
+               FROMINSTANCETYPE="Expression"
+               TOFIELD="EMPLOYE_ID" TOINSTANCE="TGT_EMPLOYES_CLEAN"
+               TOINSTANCETYPE="Target Definition"/>
+    <CONNECTOR FROMFIELD="NOM_CLEAN" FROMINSTANCE="EXP_NORMALISE"
+               FROMINSTANCETYPE="Expression"
+               TOFIELD="NOM_CLEAN" TOINSTANCE="TGT_EMPLOYES_CLEAN"
+               TOINSTANCETYPE="Target Definition"/>
+
+    <!-- Instance mappings -->
+    <INSTANCE DESCRIPTION="" DBDNAME="DW_SRC" NAME="SRC_EMPLOYES"
+              OBJECTVERSION="1" REUSABLE="NO" TRANSFORMATION_NAME="SRC_EMPLOYES"
+              TRANSFORMATION_TYPE="Source Definition" TYPE="SOURCE"
+              VERSIONNUMBER="1"/>
+    <INSTANCE DESCRIPTION="" NAME="SQ_EMPLOYES" OBJECTVERSION="1"
+              REUSABLE="NO" TRANSFORMATION_NAME="SQ_EMPLOYES"
+              TRANSFORMATION_TYPE="Source Qualifier" TYPE="TRANSFORMATION"
+              VERSIONNUMBER="1"/>
+    <INSTANCE DESCRIPTION="" NAME="EXP_NORMALISE" OBJECTVERSION="1"
+              REUSABLE="NO" TRANSFORMATION_NAME="EXP_NORMALISE"
+              TRANSFORMATION_TYPE="Expression" TYPE="TRANSFORMATION"
+              VERSIONNUMBER="1"/>
+    <INSTANCE DESCRIPTION="" DBDNAME="DW_TGT" NAME="TGT_EMPLOYES_CLEAN"
+              OBJECTVERSION="1" REUSABLE="NO"
+              TRANSFORMATION_NAME="TGT_EMPLOYES_CLEAN"
+              TRANSFORMATION_TYPE="Target Definition" TYPE="TARGET"
+              VERSIONNUMBER="1"/>
+
+  </MAPPING>
+
+  <!-- ============================================================ -->
+  <!-- SESSION & WORKFLOW                                           -->
+  <!-- ============================================================ -->
+  <SESSION DESCRIPTION="" ISVALID="YES" MAPPINGNAME="m_smoke_test"
+           NAME="s_smoke_test" OBJECTVERSION="1" REUSABLE="NO"
+           VERSIONNUMBER="1">
+    <ATTRIBUTE NAME="$Source connection value"  VALUE="SRC_ORACLE"/>
+    <ATTRIBUTE NAME="$Target connection value"  VALUE="TGT_ORACLE"/>
+    <SESSTRANSFORMATIONINST DESCRIPTION="" INSTANCE_TYPE="Source Qualifier"
+                            NAME="SQ_EMPLOYES" REUSABLE="NO">
+      <ATTRIBUTE NAME="$$BATCH_DATE" VALUE="2023-01-01"/>
+    </SESSTRANSFORMATIONINST>
+  </SESSION>
+
+  <WORKFLOW DESCRIPTION="Smoke test pipeline — validation optimisations Semaine 1-3"
+            ISENABLED="YES" ISVALID="YES" NAME="wf_smoke_test"
+            OBJECTVERSION="1" REUSABLE="NO" VERSIONNUMBER="1">
+    <WORKLET DESCRIPTION="" NAME="wl_smoke_test" REUSABLE="NO">
+      <TASK DESCRIPTION="" NAME="s_smoke_test" REUSABLE="NO"
+            TYPE="Session" VERSIONNUMBER="1"/>
+    </WORKLET>
+  </WORKFLOW>
+
+</FOLDER>
+</REPOSITORY>
+</POWERMART>
