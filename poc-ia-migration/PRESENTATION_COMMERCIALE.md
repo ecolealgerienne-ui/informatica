@@ -233,7 +233,57 @@ Il ne reconnaît pas les objets Informatica natifs :
 
 ---
 
-## Slide 11 — ROI client : simulation sur 100 workflows
+## Slide 11 — Notre grille de scoring : fondée sur des standards industriels
+
+**Nous n'avons pas inventé notre méthode. Nous l'avons construite en croisant 4 références.**
+
+| Source | Échelle | Ce qu'elle apporte |
+|---|---|---|
+| **Databricks Lakebridge** | LOW / MEDIUM / HIGH / CRITICAL | L'échelle 4 niveaux, devenue standard de facto |
+| **TCS · Capgemini · Accenture** | T1 → T4 | Java/Custom = CRITICAL automatique ; SQL simple = trivial |
+| **IEEE** *(220 projets industriels)* | Estimation continue | La *nature* de la transformation prime sur le *nombre* |
+| **WhereScape** | Binaire | Le concept "automatisable vs intervention experte" |
+
+**Le consensus de ces 4 sources donne 3 principes :**
+
+1. **Un SQL override simple n'est pas de la complexité** — c'est du SQL réutilisable directement.
+2. **10 filtres simples ≠ 3 transformations SCD2** — on mesure ce qui résiste à l'automatisation.
+3. **Java et Custom Transformation déclenchent CRITICAL** — aucun mapping automatique possible.
+
+> Notre grille suit les mêmes critères que les grandes usines de migration mondiales.
+> Elle est documentée, versionnable, et recalibratable si votre parc évolue.
+
+---
+
+## Slide 12 — Ce qui rend vraiment un workflow difficile à migrer
+
+**Deux catégories. Une frontière claire.**
+
+| ✅ Migrable sans friction | ⚠️ Résiste à l'automatisation |
+|---|---|
+| SQL override simple (WHERE, TO_DATE) | Java Transformation |
+| Filtre, tri, DISTINCT | Custom Transformation |
+| Fonctions Oracle triviales (ROWNUM, TO_DATE) | Sous-requêtes SQL imbriquées |
+| 10 filtres simples | Fonctions analytiques (ROW_NUMBER, LAG, RANK) |
+| Fichier de paramètres | SCD Type 2 (historisation) |
+| Expression avec 1–8 champs calculés | Lookup non connecté (syntaxe propriétaire) |
+| Aggregator simple (GROUP BY standard) | Normalizer (dépivotage) |
+
+**Répartition observée sur un parc typique (benchmark Accenture / TCS) :**
+
+| Niveau | % du parc | Automatisation estimée |
+|---|---|---|
+| LOW | 30 – 40 % | 85 – 95 % |
+| MEDIUM | 30 – 35 % | 65 – 80 % |
+| HIGH | 15 – 25 % | 40 – 60 % |
+| CRITICAL | **5 – 15 %** | 10 – 30 % |
+
+> La grande majorité d'un parc Informatica est migrable de façon contrôlée.
+> Le scoring Phase 1 vous dit exactement où sont vos 5–15 % de cas critiques — avant de dépenser.
+
+---
+
+## Slide 13 — ROI client : simulation sur 100 workflows
 
 **Hypothèse : parc de 100 workflows, répartition typique**
 
@@ -252,7 +302,7 @@ Il ne reconnaît pas les objets Informatica natifs :
 
 ---
 
-## Slide 12 — Modèle commercial : 4 phases progressives
+## Slide 14 — Modèle commercial : 4 phases progressives
 
 **Approche par phases — chaque phase a une valeur standalone**
 
@@ -276,7 +326,7 @@ Il ne reconnaît pas les objets Informatica natifs :
 
 ---
 
-## Slide 13 — Roadmap : ce qui vient après le POC
+## Slide 15 — Roadmap : ce qui vient après le POC
 
 **Court terme (3–6 mois)**
 - Correction du bug SCD2 (KeyError sur clés composites)
@@ -298,7 +348,7 @@ Il ne reconnaît pas les objets Informatica natifs :
 
 ---
 
-## Slide 14 — Garanties et limites — ce qu'on vous dit clairement
+## Slide 16 — Garanties et limites — ce qu'on vous dit clairement
 
 **Ce que nous garantissons :**
 - Analyse complète de votre parc via la Phase 1 (inventaire + scoring)
@@ -320,7 +370,7 @@ Vous ne découvrez pas un blocage en recette — vous le savez dès la Phase 1.
 
 ---
 
-## Slide 15 — Prochaines étapes
+## Slide 17 — Prochaines étapes
 
 **Étape 1 — Appel de qualification (30 min)**
 
