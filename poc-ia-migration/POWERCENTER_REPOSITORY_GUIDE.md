@@ -242,18 +242,170 @@ pmrep objectexport -o worklet -f <FOLDER> -u worklets_export.xml
 
 ### Priorité d'implémentation
 
-| Ajout | Effort | Valeur | Priorité |
-|---|---|---|---|
-| Parse fichiers `.par` | Faible | Haute | 🔴 P1 |
-| Parse mapplets XML | Moyen | Haute | 🔴 P1 |
-| Parse transformations réutilisables | Moyen | Haute | 🔴 P1 |
-| Listobjects → inventaire complet | Faible | Moyenne | 🟡 P2 |
-| Connexion via `REP_WFLOW_RUN` | Élevé | Haute | 🟡 P2 |
-| Parse logs de session | Élevé | Moyenne | 🟢 P3 |
+| Ajout | Effort | Valeur complexité | Valeur migration | Priorité |
+|---|---|---|---|---|
+| Parse mapplets XML | Moyen | **Critique** | Haute | 🔴 P1 |
+| Parse transformations réutilisables | Moyen | **Critique** | Haute | 🔴 P1 |
+| Parse worklets réutilisables | Moyen | Haute | Moyenne | 🔴 P1 |
+| Listobjects → inventaire complet | Faible | Faible | Moyenne | 🟡 P2 |
+| Connexion via `REP_WFLOW_RUN` | Élevé | Faible | Haute | 🟡 P2 |
+| Parse fichiers `.par` | Faible | **Nulle** | Faible | 🟢 P3 |
+| Parse logs de session | Élevé | Nulle | Moyenne | 🟢 P3 |
+
+> **Note sur les fichiers `.par`** : ils ne contribuent pas à la complexité de migration.
+> Ce sont des variables de configuration runtime (`$$BATCH_DATE`, `$$CONNECTION`) — l'équivalent
+> Python est `os.getenv()` ou un fichier de config. Déplacer les valeurs vers un `.env` ou
+> un gestionnaire de secrets est trivial. Pas de scoring, pas d'analyse sémantique nécessaire.
 
 ---
 
-## 9. Ce qui reste hors scope — et pourquoi
+## 9. Architecture : scoring transitif par les objets globaux
+
+### Principe
+
+Les objets globaux (mapplets, transformations réutilisables, worklets) sont des **fonctions partagées** appelées par N workflows. Leur complexité doit **remonter vers chaque workflow qui les utilise**.
+
+Sans cette résolution, un workflow peut être classé LOW alors qu'il délègue sa logique critique à un mapplet CRITICAL — et planter silencieusement en Phase 2.
+
+### Problème concret
+
+```
+mpl_clean_address (Mapplet — objet global)
+├── Expression (3 champs calculés)       → score 0
+├── Java Transformation                  → score 8, flag CRITICAL automatique
+└── Lookup non connecté                  → score 3
+
+wf_clients_dim (Workflow)
+└── Mapplet : mpl_clean_address
+└── Filter simple
+└── Expression (2 champs)
+
+Scoring SANS résolution : LOW (score 2)   ← FAUX, sous-estime massivement le risque
+Scoring AVEC résolution : CRITICAL (13)   ← JUSTE, héritage de la Java Transformation
+```
+
+### Architecture en deux temps
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  ÉTAPE 0 — Bibliothèque d'objets globaux                │
+│                                                         │
+│  input/mapplets/          → parse + score               │
+│  input/transformations/   → parse + score               │
+│  input/worklets/          → parse + score               │
+│            │                                            │
+│            ▼                                            │
+│     global_library.json                                 │
+│     {                                                   │
+│       "mpl_clean_address": {                            │
+│         "score": 8,                                     │
+│         "flag": "CRITICAL",                             │
+│         "transformations": [...],                       │
+│         "auto_critical": true                           │
+│       },                                                │
+│       "mpl_validate_email": { "score": 1, ... }         │
+│     }                                                   │
+└─────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│  ÉTAPE 1 — Analyse des workflows (enrichie)             │
+│                                                         │
+│  Pour chaque workflow XML :                             │
+│    1. Parser les transformations directes               │
+│    2. Détecter les références à des objets globaux      │
+│    3. Résoudre via global_library.json                  │
+│    4. Injecter les transformations du mapplet           │
+│    5. Additionner les scores (direct + hérité)          │
+│            │                                            │
+│            ▼                                            │
+│     Canonical JSON enrichi                              │
+│     {                                                   │
+│       "workflow_complexity": {                          │
+│         "direct_score": 2,                              │
+│         "inherited_score": 11,                          │
+│         "total_score": 13,                              │
+│         "flag": "CRITICAL"                              │
+│       },                                                │
+│       "global_objects_used": [                          │
+│         {                                               │
+│           "name": "mpl_clean_address",                  │
+│           "type": "Mapplet",                            │
+│           "inherited_score": 11,                        │
+│           "flag": "CRITICAL"                            │
+│         }                                               │
+│       ]                                                 │
+│     }                                                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Règles de scoring transitif
+
+| Cas | Comportement |
+|---|---|
+| Workflow référence un mapplet LOW | Score du mapplet ajouté au total |
+| Workflow référence un mapplet CRITICAL | Workflow devient CRITICAL automatiquement |
+| Mapplet contient une Java Transformation | Héritage du flag CRITICAL automatique — indépendamment des scores |
+| Plusieurs mapplets référencés | Scores cumulés — le plus restrictif détermine le flag final |
+| Mapplet non trouvé dans la bibliothèque | Warning dans le rapport — score estimé MEDIUM par défaut |
+
+### Impact sur la décomposition du score (rapport Phase 1)
+
+Le score breakdown dans le rapport HTML doit distinguer :
+
+```
+Score de complexité : 13 — CRITICAL
+
+  Transformations directes
+  ├── Filter simple              0
+  ├── Expression (2 champs)      0
+  └── Sous-total direct          2
+
+  Objets globaux utilisés
+  ├── mpl_clean_address (Mapplet)
+  │   ├── Expression (3 champs)  0
+  │   ├── Java Transformation    8  ← CRITICAL automatique
+  │   └── Lookup non connecté    3
+  └── Sous-total hérité         11
+
+  Modificateurs globaux          0
+  ──────────────────────────────
+  TOTAL                         13  CRITICAL
+```
+
+### Structure d'input recommandée
+
+```
+input/
+  workflows/           ← XMLs de workflows (requis)
+    wf_clients_dim.xml
+    wf_orders_fact.xml
+  mapplets/            ← XMLs de mapplets (optionnel — enrichit le scoring)
+    all_mapplets.xml   ← export pmrep objectexport -o mapplet -f FOLDER
+  transformations/     ← XMLs de transformations réutilisables (optionnel)
+    all_reusable.xml   ← export pmrep objectexport -o transformation -f FOLDER
+  worklets/            ← XMLs de worklets réutilisables (optionnel)
+    all_worklets.xml   ← export pmrep objectexport -o worklet -f FOLDER
+```
+
+Règle de dégradation gracieuse : si `mapplets/` est absent ou vide, le parser fonctionne exactement comme aujourd'hui — les références à des mapplets sont signalées comme non-résolues dans le rapport sans bloquer l'analyse.
+
+### Commandes pmrep pour le client
+
+```bash
+# À lancer sur le serveur Informatica (fournir ce script au client)
+pmrep connect -r REP_PROD -d DOMAIN -u admin -x ****
+
+pmrep objectexport -o mapplet        -f MON_FOLDER -u input/mapplets/all_mapplets.xml
+pmrep objectexport -o transformation -f MON_FOLDER -u input/transformations/all_reusable.xml
+pmrep objectexport -o worklet        -f MON_FOLDER -u input/worklets/all_worklets.xml
+
+pmrep disconnect
+```
+
+---
+
+## 11. Ce qui reste hors scope — et pourquoi
 
 **Credentials** : intentionnellement absents des exports XML pour des raisons de sécurité. À re-configurer dans la plateforme cible. Non pertinent pour la migration de la logique.
 
