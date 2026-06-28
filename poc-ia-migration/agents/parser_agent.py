@@ -290,53 +290,29 @@ CLAUDE_PROMPT_TEMPLATE = """
 You are an expert Informatica PowerCenter → Python migration analyst.
 
 ## Task
-Analyse the Informatica mapping data below and return a JSON object with exactly this structure (no markdown, no explanation — raw JSON only):
+The complexity score has ALREADY been computed deterministically. Do NOT recompute it.
+Your job is ONLY semantic analysis: identify proprietary functions, Python equivalents,
+lookup subtypes, and write the routing rationale.
+
+Return a JSON object with exactly this structure (no markdown, no explanation — raw JSON only):
 
 {{
-  "routing_decision": {{
-    "target_platform": "python|pyspark|databricks",
-    "rationale": "<one sentence>",
-    "auto_conversion_feasibility": "HIGH|MEDIUM|LOW",
-    "human_intervention_required": true|false
-  }},
+  "routing_rationale": "<one sentence explaining why this platform was chosen given the transformations>",
   "transformations_analysis": [
     {{
       "name": "<transformation name>",
-      "complexity_flag": "LOW|MEDIUM|HIGH|CRITICAL",
-      "complexity_score": <integer computed from the scoring matrix>,
-      "score_breakdown": {{"<modifier_key>": <score>, ...}},
-      "has_proprietary_functions": ["list", "of", "functions"],
-      "python_equivalents": {{"FUNC": "pandas equivalent"}},
+      "has_proprietary_functions": ["list of Informatica/Oracle proprietary functions used"],
+      "python_equivalents": {{"FUNC_NAME": "pandas/numpy equivalent"}},
       "lookup_subtype": "CONNECTED_STATIC|CONNECTED_DYNAMIC|UNCONNECTED|null",
-      "notes": "<optional short note>"
+      "notes": "<optional short migration note>"
     }}
   ],
-  "workflow_complexity": {{
-    "total_score": <sum of all transformation scores + global modifiers>,
-    "flag": "LOW|MEDIUM|HIGH|CRITICAL",
-    "estimated_migration_days": "<range from thresholds>",
-    "auto_conversion": true|false,
-    "score_breakdown": {{
-      "transformations": {{"<name>": <score>}},
-      "global_modifiers": {{"<modifier>": <score>}}
-    }}
-  }},
-  "global_flags": {{
-    "has_java_transformation": false,
-    "has_dynamic_lookup": false,
-    "has_custom_function": false,
-    "has_parameter_file": true|false,
-    "has_sql_override": true|false,
-    "oracle_proprietary_functions": ["list"],
-    "requires_human_review": []
-  }}
+  "oracle_proprietary_functions": ["global list of all Oracle functions found across all transformations"],
+  "requires_human_review": ["list transformation names that need expert attention, or empty list"]
 }}
 
 ## RAG Base — Transformation Map (approved Python equivalents)
 {rag_map}
-
-## RAG Base — Complexity Scoring Matrix (USE THIS to compute all scores)
-{complexity_matrix}
 
 ## SQL Pre-Analysis (deterministic — computed by sqlglot, trust these flags)
 {sql_analysis}
@@ -346,7 +322,189 @@ Analyse the Informatica mapping data below and return a JSON object with exactly
 """
 
 
-MODEL = "claude-haiku-4-5-20251001"  # classification task — lightweight model sufficient
+MODEL = "claude-haiku-4-5-20251001"  # semantic analysis only — lightweight model sufficient
+
+
+# ---------------------------------------------------------------------------
+# Deterministic complexity scorer (no LLM)
+# ---------------------------------------------------------------------------
+
+def _detect_expression_flags(t: dict) -> dict:
+    fields = t.get("computed_fields", [])
+    n = len(fields)
+    exprs = " ".join(f.get("expression", "") for f in fields).upper()
+    return {
+        "computed_fields_1_3":    n <= 3,
+        "computed_fields_4_8":    4 <= n <= 8,
+        "computed_fields_9_plus": n >= 9,
+        "has_datediff":           "DATEDIFF" in exprs,
+        "has_iif_nested":         exprs.count("IIF(") >= 2,
+        "has_decode_complex":     "DECODE(" in exprs,
+        "has_java_expression":    "JAVA(" in exprs or "JavaExpression" in exprs,
+        "has_string_aggregation": any(f in exprs for f in ("STRING_AGG", "LISTAGG")),
+    }
+
+
+def _detect_filter_flags(t: dict) -> dict:
+    cond = (t.get("filter_condition") or t.get("condition", "")).upper()
+    n_and_or = cond.count(" AND ") + cond.count(" OR ")
+    has_sub = "SELECT " in cond
+    return {
+        "simple_condition":    not has_sub and n_and_or == 0,
+        "compound_condition":  not has_sub and n_and_or >= 1,
+        "subquery_condition":  has_sub,
+    }
+
+
+def _detect_lookup_flags(t: dict) -> dict:
+    name = (t.get("name") or "").upper()
+    is_unconnected = name.startswith("LKP_UNCON") or ":LKP." in name
+    cache = t.get("cache_persistent", False)
+    match = (t.get("multiple_match") or "").lower()
+    return {
+        "lookup_unconnected":      is_unconnected,
+        "lookup_connected_static": not is_unconnected,
+        "lookup_connected_dynamic": False,
+        "multiple_match_error":    "error" in match,
+        "multiple_match_last_row": "last" in match,
+        "cache_persistent":        cache,
+        "cross_db_lookup":         False,
+    }
+
+
+def _detect_sq_flags(t: dict, sql_hints: dict) -> dict:
+    hints = sql_hints.get("complexity_hints", {})
+    return {
+        "has_sql_override":         t.get("has_sql_override", False),
+        "has_oracle_rownum":        hints.get("has_oracle_rownum", False),
+        "has_oracle_to_date":       hints.get("has_oracle_to_date", False),
+        "has_subquery":             hints.get("has_subquery", False),
+        "has_union":                hints.get("has_union", False),
+        "has_analytical_functions": hints.get("has_analytical_functions", False),
+        "select_distinct":          t.get("select_distinct", False),
+    }
+
+
+def score_transformation(t: dict, matrix: dict, sql_analyses: dict) -> tuple[int, dict]:
+    t_type = t.get("type", "")
+    t_scores = matrix.get("transformation_scores", {})
+    entry = t_scores.get(t_type)
+    if entry is None:
+        return 0, {}
+
+    base = entry.get("base_score", 0)
+    modifiers = entry.get("modifiers", {})
+    breakdown = {}
+
+    # Detect flags per transformation type
+    if t_type == "Source Qualifier":
+        sql_hints = sql_analyses.get(t.get("name", ""), {})
+        flags = _detect_sq_flags(t, sql_hints)
+    elif t_type == "Expression":
+        flags = _detect_expression_flags(t)
+    elif t_type == "Filter":
+        flags = _detect_filter_flags(t)
+    elif t_type == "Lookup Procedure":
+        flags = _detect_lookup_flags(t)
+    else:
+        flags = {}
+
+    total = base
+    for mod_key, mod_def in modifiers.items():
+        if flags.get(mod_key):
+            s = mod_def.get("score", 0)
+            if s > 0:
+                breakdown[mod_key] = s
+                total += s
+
+    return total, breakdown
+
+
+def compute_complexity(structural: dict, matrix: dict, sql_analyses: dict) -> dict:
+    transformations = structural.get("transformations", [])
+    targets = structural.get("targets", [])
+    session = structural.get("workflow", {}).get("session", {})
+    global_mods = matrix.get("global_modifiers", {})
+    thresholds = matrix.get("thresholds", {})
+    routing_rules = matrix.get("routing_rules", {})
+
+    t_scores = {}
+    t_breakdowns = {}
+    for t in transformations:
+        score, breakdown = score_transformation(t, matrix, sql_analyses)
+        t_scores[t["name"]] = score
+        t_breakdowns[t["name"]] = breakdown
+
+    # Global modifiers
+    n_transfo = len(transformations)
+    has_param = bool(session.get("parameter_file") or session.get("variables"))
+    has_multiple_targets = len(targets) > 1
+    has_java = any(t.get("type") == "Java Transformation" for t in transformations)
+    has_custom = any(t.get("type") == "Custom Transformation" for t in transformations)
+    has_sq_override = any(t.get("has_sql_override") for t in transformations)
+
+    global_scores = {}
+    if has_param and global_mods.get("has_parameter_file"):
+        global_scores["has_parameter_file"] = global_mods["has_parameter_file"]["score"]
+    if 5 <= n_transfo <= 10 and global_mods.get("transformation_count_5_10"):
+        global_scores["transformation_count_5_10"] = global_mods["transformation_count_5_10"]["score"]
+    if n_transfo >= 11 and global_mods.get("transformation_count_11_plus"):
+        global_scores["transformation_count_11_plus"] = global_mods["transformation_count_11_plus"]["score"]
+    if has_multiple_targets and global_mods.get("has_multiple_targets"):
+        global_scores["has_multiple_targets"] = global_mods["has_multiple_targets"]["score"]
+
+    total = sum(t_scores.values()) + sum(global_scores.values())
+
+    # Flag from thresholds
+    flag = "CRITICAL"
+    for fname, fdef in thresholds.items():
+        if fdef["min"] <= total <= fdef["max"]:
+            flag = fname
+            break
+
+    th = thresholds.get(flag, {})
+    days = th.get("migration_days", ">5")
+    auto = th.get("auto_conversion", False)
+
+    # Routing platform
+    if has_java or has_custom or total >= 15:
+        platform = "databricks"
+        feasibility = "LOW"
+    elif total >= 9:
+        platform = "pyspark"
+        feasibility = "MEDIUM"
+    else:
+        platform = "python"
+        feasibility = "HIGH"
+
+    return {
+        "complexity": {
+            "total_score": total,
+            "flag": flag,
+            "estimated_migration_days": days,
+            "auto_conversion": auto,
+            "score_breakdown": {
+                "transformations": t_scores,
+                "global_modifiers": global_scores,
+            },
+        },
+        "per_transformation": {
+            name: {"score": t_scores[name], "breakdown": t_breakdowns[name]}
+            for name in t_scores
+        },
+        "routing": {
+            "target_platform": platform,
+            "auto_conversion_feasibility": feasibility,
+            "human_intervention_required": has_java or has_custom or total >= 9,
+        },
+        "global_flags": {
+            "has_java_transformation": has_java,
+            "has_dynamic_lookup": False,
+            "has_custom_function": has_custom,
+            "has_parameter_file": has_param,
+            "has_sql_override": has_sq_override,
+        },
+    }
 
 
 def call_claude(prompt: str) -> str:
@@ -377,11 +535,11 @@ def extract_json(raw: str) -> dict:
     return json.loads(raw[start:end])
 
 
-def analyse_with_claude(structural: dict) -> dict:
+def analyse_with_claude(structural: dict) -> tuple[dict, dict, dict]:
     rag_map    = json.loads(RAG_MAP_PATH.read_text(encoding="utf-8"))
     complexity = json.loads(RAG_COMPLEXITY_PATH.read_text(encoding="utf-8"))
 
-    # Run sqlglot analysis on every Source Qualifier with a SQL override
+    # Step 1 — deterministic SQL analysis (sqlglot)
     sql_analyses = {}
     for t in structural["transformations"]:
         if t.get("type") == "Source Qualifier" and t.get("sql_override"):
@@ -395,8 +553,16 @@ def analyse_with_claude(structural: dict) -> dict:
                       f"union={hints.get('has_union')}, "
                       f"oracle_funcs={result.get('oracle_functions', [])}")
 
+    # Step 2 — deterministic complexity scoring (no LLM)
+    det = compute_complexity(structural, complexity, sql_analyses)
+    print(f"[Parser] Deterministic score: {det['complexity']['total_score']} "
+          f"({det['complexity']['flag']}) → {det['routing']['target_platform']}")
+
+    # Step 3 — LLM for semantic analysis only (proprietary functions, equivalents, rationale)
     mapping_summary = {
-        "mapping_id":      structural["mapping_id"],
+        "mapping_id":          structural["mapping_id"],
+        "complexity_computed": det["complexity"],
+        "routing_computed":    det["routing"],
         "transformations": [
             {
                 "name":             t["name"],
@@ -414,33 +580,45 @@ def analyse_with_claude(structural: dict) -> dict:
 
     prompt = CLAUDE_PROMPT_TEMPLATE.format(
         rag_map=json.dumps(rag_map, indent=2),
-        complexity_matrix=json.dumps(complexity, indent=2),
         sql_analysis=json.dumps(sql_analyses, indent=2) if sql_analyses else "{}",
         mapping_data=json.dumps(mapping_summary, indent=2),
     )
 
-    print("[Parser] Calling Claude Code for semantic analysis + complexity scoring...")
+    print("[Parser] Calling Claude Code for semantic analysis (functions, equivalents, rationale)...")
     raw = call_claude(prompt)
-    return extract_json(raw), sql_analyses
+    return extract_json(raw), sql_analyses, det
 
 
 # ---------------------------------------------------------------------------
 # Merge structural + LLM analysis → canonical JSON
 # ---------------------------------------------------------------------------
 
-def merge_results(structural: dict, llm: dict, sql_analyses: dict = None) -> dict:
+def merge_results(structural: dict, llm: dict, sql_analyses: dict, det: dict) -> dict:
     sql_analyses = sql_analyses or {}
     t_analysis = {t["name"]: t for t in llm.get("transformations_analysis", [])}
+    per_t = det.get("per_transformation", {})
+
+    # Thresholds for per-transformation flag
+    def t_flag(score: int) -> str:
+        if score <= 2:   return "LOW"
+        if score <= 5:   return "MEDIUM"
+        if score <= 8:   return "HIGH"
+        return "CRITICAL"
 
     transformations = []
     for t in structural["transformations"]:
-        analysis = t_analysis.get(t["name"], {})
+        analysis  = t_analysis.get(t["name"], {})
+        det_t     = per_t.get(t["name"], {})
+        det_score = det_t.get("score", 0)
+
         merged = {
             "name":                    t["name"],
             "type":                    t["type"],
-            "complexity_flag":         analysis.get("complexity_flag", "MEDIUM"),
-            "complexity_score":        analysis.get("complexity_score", 0),
-            "score_breakdown":         analysis.get("score_breakdown", {}),
+            # Scores come exclusively from the deterministic scorer
+            "complexity_flag":         t_flag(det_score),
+            "complexity_score":        det_score,
+            "score_breakdown":         det_t.get("breakdown", {}),
+            # Semantic fields come from LLM
             "has_proprietary_functions": analysis.get("has_proprietary_functions", []),
             "python_equivalents":      analysis.get("python_equivalents", {}),
             "ports":                   t["ports"],
@@ -467,21 +645,30 @@ def merge_results(structural: dict, llm: dict, sql_analyses: dict = None) -> dic
     wf = structural["workflow"]
     session_vars = wf.get("session", {}).get("variables", [])
 
+    # routing_decision: deterministic platform + LLM rationale
+    routing = det["routing"].copy()
+    routing["rationale"] = llm.get("routing_rationale", "")
+
+    # global_flags: deterministic booleans + LLM semantic lists
+    flags = det["global_flags"].copy()
+    flags["oracle_proprietary_functions"] = llm.get("oracle_proprietary_functions", [])
+    flags["requires_human_review"]        = llm.get("requires_human_review", [])
+
     return {
-        "workflow_id":        wf.get("workflow_name", ""),
-        "mapping_id":         structural["mapping_id"],
-        "parsed_at":          datetime.now(timezone.utc).isoformat(),
-        "routing_decision":   llm.get("routing_decision", {}),
-        "workflow_complexity": llm.get("workflow_complexity", {}),
+        "workflow_id":         wf.get("workflow_name", ""),
+        "mapping_id":          structural["mapping_id"],
+        "parsed_at":           datetime.now(timezone.utc).isoformat(),
+        "routing_decision":    routing,
+        "workflow_complexity": det["complexity"],
         "session": {
             "parameter_file": wf.get("session", {}).get("parameter_file", ""),
             "variables":      session_vars,
         },
-        "sources":            structural["sources"],
-        "targets":            structural["targets"],
-        "transformations":    transformations,
-        "data_flow":          build_data_flow(structural["connectors"]),
-        "flags":              llm.get("global_flags", {}),
+        "sources":             structural["sources"],
+        "targets":             structural["targets"],
+        "transformations":     transformations,
+        "data_flow":           build_data_flow(structural["connectors"]),
+        "flags":               flags,
     }
 
 
@@ -500,9 +687,9 @@ class ParserAgent:
         print(f"[Parser] Found {len(structural['transformations'])} transformations, "
               f"{len(structural['connectors'])} connectors")
 
-        llm_analysis, sql_analyses = analyse_with_claude(structural)
+        llm_analysis, sql_analyses, det = analyse_with_claude(structural)
 
-        canonical = merge_results(structural, llm_analysis, sql_analyses)
+        canonical = merge_results(structural, llm_analysis, sql_analyses, det)
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         output_path = OUTPUT_DIR / f"{self.workflow_name}.json"
