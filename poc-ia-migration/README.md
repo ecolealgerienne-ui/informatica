@@ -30,8 +30,17 @@ La migration d'un parc Informatica PowerCenter vers Python/Databricks est un tra
 
 - Un consultant lit le XML manuellement → 2 à 4 semaines d'analyse par workflow
 - Un développeur code le script Python → 1 à 3 semaines par workflow
-- Recette manuelle → 1 à 2 semaines par workflow
-- **Coût total estimé** : 3 000 à 8 000 € par workflow · 500 workflows = **1,5 M€ à 4 M€ sur 12 à 24 mois**
+- Recette manuelle avec les équipes métier (souvent 3 à 4 itérations) → 1 à 2 semaines par workflow
+
+**Coût total estimé par workflow** (hors infrastructure) :
+
+| Complexité | Coût estimé | Inclut |
+|---|---|---|
+| LOW (simple) | 5 000 – 10 000 € | Analyse + dev + recette simple |
+| MEDIUM | 10 000 – 25 000 € | + allers-retours métier |
+| HIGH / CRITICAL | 25 000 – 50 000 € | + qualification, tests non-régression, expertise spécialisée |
+
+**Sur un parc de 500 workflows hétérogènes : 5 M€ à 15 M€ sur 18 à 36 mois.**
 
 ### L'approche
 
@@ -127,9 +136,12 @@ python pipeline/run_pipeline.py input/wf_clients_dim.xml --force
    - Detecte les Source Qualifiers avec SQL override → passe à sqlglot
 
 2. **Analyse sémantique** (appel LLM Haiku) :
-   - Détecte les fonctions propriétaires Oracle (TO_DATE, TRUNC, DECODE, NVL…)
+   - Détecte les fonctions SQL Oracle dans les **Source Qualifier overrides** (TO_DATE, TRUNC, DECODE, NVL, ROWNUM…)
    - Calcule le score de complexité selon la grille `complexity_matrix.json`
    - Décide de la plateforme cible (Python / PySpark / Databricks)
+
+> **Pourquoi détecter les fonctions Oracle si la source est Oracle ?**
+> Les Source Qualifiers contiennent du SQL envoyé à la base Oracle pour l'extraction. En migrant vers Python, ce SQL disparaît — il est remplacé par du code pandas. On détecte donc ces fonctions pour savoir ce qu'il faut **traduire** (ex : `TRUNC(date, 'MM')` → `col.dt.to_period('M')`). Si la cible était un autre Oracle, on garderait le SQL tel quel et cette étape serait inutile.
 
 **Grille de scoring de complexité** :
 
@@ -153,7 +165,9 @@ Chaque type de transformation a un poids :
 | SCD Type 2 | +5 | Logique upsert complexe |
 | Séquence / historique | +5 | Stateful, déduplication |
 
-**sqlglot** est utilisé pour analyser les SQL overrides des Source Qualifiers : détection de fenêtres, sous-requêtes, UNIONs, et transpilation vers Spark SQL.
+**sqlglot** est utilisé pour analyser les SQL overrides des Source Qualifiers : détection de fenêtres, sous-requêtes, UNIONs, fonctions Oracle non standard, et transpilation vers Spark SQL.
+
+> **Notre pipeline détecte-t-il la complexité SQL comme Lakebridge ?** Oui, partiellement. sqlglot identifie les constructions SQL complexes (window functions, sous-requêtes corrélées, UNIONs) dans les Source Qualifiers et ajoute un modificateur au score. La différence : chez Lakebridge le SQL est le **critère principal**, chez nous c'est un **modificateur secondaire** — le critère principal reste les objets de transformation Informatica (SCD2, Normalizer, Router…) qui n'ont aucun équivalent SQL. Les deux approches sont complémentaires, pas substituables.
 
 ---
 
@@ -200,7 +214,9 @@ def main():                          # orchestration + audit rows_in/rows_out
    - Cycles 2-3 : Haiku — corrections ciblées, retourne uniquement les fonctions modifiées
    - `apply_function_patches()` : merge AST des fonctions corrigées dans le script original
 
-**Statut final** : `OK` | `ESCALATE` (intervention humaine requise après 3 cycles sans succès)
+**Statut final** : `OK` | `ESCALATE`
+
+> **Limite réelle du Fixer multi-cycles** : en pratique, **1 seul cycle a suffi sur tous les workflows testés**. Les cycles 2-3 sont un garde-fou théorique. Leur efficacité dépend de la précision des checks statiques : si le diagnostic fourni au LLM est clair et déterministe (pattern interdit détecté, fonction manquante), la correction est fiable. En revanche, si le problème est purement sémantique (logique métier incorrecte sans erreur Python), le LLM ne peut pas le détecter de lui-même. Dans ce cas, l'escalade vers un humain est la seule issue sûre — les cycles supplémentaires ne font pas de miracle.
 
 ---
 
@@ -304,7 +320,7 @@ def main():                          # orchestration + audit rows_in/rows_out
 | Documentation métier | Tableur Excel manuel | **Markdown généré automatiquement** |
 | Rapport de recette | Rédigé à la main | **HTML + JSON produits automatiquement** |
 | Traçabilité XML → code | Nulle | **Canonical JSON auditable** |
-| Coût par workflow | 3 000 – 8 000 € | **< 1 € LLM + 30 min relecture** |
+| Coût par workflow (LLM seul) | 10 000 – 50 000 € (ingénieur inclus) | **< 1 € LLM** (+ supervision ingénieur à quantifier) |
 
 ---
 
@@ -469,34 +485,64 @@ Control-M est le scheduler d'entreprise qui pilote les workflows. Notre pipeline
 
 ## 9. Positionnement marché
 
+> **Avertissement de lecture** : cette comparaison est établie à partir d'un POC de 8 workflows sur données synthétiques. Les outils commerciaux cités ont des années de développement et des milliers de clients en production. Les chiffres ci-dessous sont des estimations, pas des benchmarks certifiés.
+
 ### Comparaison directe
 
 | Capacité | Notre POC | WhereScape | SSIS Assistant | Big 4 | LLM artisanal |
 |---|---|---|---|---|---|
-| Source Informatica XML | ✅ Complet | ✅ Partiel | ✅ vers SSIS | ✅ Manuel | ⚠️ Copier-coller |
-| Boucle Fixer automatique | ✅ | ❌ | ❌ | ✅ (humain, payant) | ❌ |
-| Documentation métier auto | ✅ | ❌ | ❌ | ✅ (consultant, payant) | ⚠️ À demander |
-| Rapport QA / data diff auto | ✅ HTML+JSON | ❌ | ❌ | ✅ (manuel) | ❌ |
-| Traçabilité XML → code | ✅ Canonical JSON | ⚠️ Partielle | ⚠️ Partielle | ❌ Excel | ❌ |
-| Coût par workflow | **< 1 €** | 5 000 – 15 000 € | 2 000 – 6 000 € | 3 000 – 8 000 € | Variable |
-| Délai par workflow | **4 – 7 min** | 2 – 5 jours | 1 – 3 jours | 2 – 6 semaines | 2 – 5 jours |
-| Rejouabilité | ✅ Checkpoint | ❌ | ❌ | ❌ | ❌ |
+| Source Informatica XML | ✅ Complet (8 workflows testés) | ✅ Partiel | ✅ vers SSIS uniquement | ✅ Manuel | ⚠️ Copier-coller |
+| Boucle Fixer automatique | ✅ (1 cycle observé) | ❌ | ❌ | ✅ (code review humaine) | ❌ |
+| Documentation métier auto | ✅ (qualité variable selon Haiku) | ❌ | ❌ | ✅ (consultant senior) | ⚠️ À demander |
+| Rapport QA / data diff auto | ✅ HTML+JSON (fixtures synthétiques) | ❌ | ❌ | ✅ (golden data réels) | ❌ |
+| Traçabilité XML → code | ✅ Canonical JSON | ⚠️ Partielle | ⚠️ Partielle | ❌ Excel/Word | ❌ |
+| Coût LLM par workflow | **< 1 € LLM** | N/A | N/A | N/A | Variable |
+| Coût total (ingénieur inclus) | **À évaluer** (POC non industrialisé) | 5 000 – 15 000 € (licence + setup) | 2 000 – 6 000 € | 10 000 – 50 000 € | 3 000 – 10 000 € |
+| Délai pipeline seul | **4 – 7 min** | 2 – 5 jours | 1 – 3 jours | 2 – 6 semaines | 2 – 5 jours |
+| Maturité produit | **POC** (8 workflows) | Produit commercial (10+ ans) | Produit Microsoft | Méthodologie éprouvée | Non industrialisé |
+| Support enterprise / SLA | ❌ | ✅ | ✅ Microsoft | ✅ Contractuel | ❌ |
+| Tests sur données réelles client | ❌ | ✅ | ✅ | ✅ | Variable |
 
-### Avantages compétitifs
+### Ce que le POC démontre réellement
 
-1. **Canonical JSON** : artefact contractuel client — preuve d'audit entre XML source et code produit.
-2. **Pipeline 5 agents spécialisés** : aucun concurrent ne génère documentation + QA auto en plus du code.
-3. **Zéro dépendance plateforme** : produit du Python pur, déployable partout.
-4. **Coût marginal quasi-nul** : quelques centimes de LLM par workflow supplémentaire.
+Le pipeline prouve trois choses sur 8 workflows synthétiques :
 
-### Faiblesses honnêtes
+1. **La faisabilité technique** : un XML Informatica peut être converti en Python exécutable en moins de 10 minutes via des agents LLM.
+2. **La structuration du processus** : le canonical JSON + les 5 agents couvrent tout le cycle (analyse → code → correction → documentation → QA).
+3. **Le coût LLM marginal** : quelques centimes par workflow, vs des jours de travail humain.
 
-| Faiblesse | Impact | Mitigation |
+**Ce que le POC ne démontre pas encore** :
+- Qualité sur des données réelles client (aucun golden data réel utilisé)
+- Taux de succès sur un parc hétérogène de 500+ workflows réels avec leurs imperfections
+- Robustesse face aux cas atypiques (Java Transformations, connexions multi-base, Parameter Files complexes)
+- Temps ingénieur de supervision, correction et mise en production (le "< 1 €" est le coût LLM, pas le coût total)
+
+### Avantages différenciants (par rapport à l'état du marché)
+
+1. **Canonical JSON** : aucun outil concurrent ne publie ce concept comme artefact contractuel auditable — c'est à la fois un livrable et une preuve.
+2. **Pipeline end-to-end 5 étapes** : les outils commerciaux s'arrêtent au CodeGen. Documentation métier auto + QA auto sont absents chez tous.
+3. **Coût LLM quasi-nul** : après industrialisation, le coût marginal par workflow est de quelques centimes — aucun modèle économique concurrent n'atteint ça.
+
+### Ce que les concurrents font mieux (honnêteté)
+
+| Concurrent | Ce qu'ils font mieux que notre POC |
+|---|---|
+| WhereScape | 10+ ans de maturité, certifications, SLA enterprise, support multi-pays |
+| Big 4 | Golden data réels, recette signée contractuellement, couverture 100% des patterns y compris atypiques |
+| SSIS Assistant | Intégration native Microsoft, certifié Azure, support officiel |
+
+### Condition pour aller au marché
+
+Un POC de 8 workflows n'est pas vendable tel quel. Les prérequis minimum avant de proposer cet outil à un client :
+
+| Prérequis | Statut | Effort estimé |
 |---|---|---|
-| QA execution-only (pas de golden data) | Prouve l'exécution, pas la correction métier | Golden data client en Phase 2 |
-| wf_accounts_scd2 CRASH | Pattern SCD2 fragilisé | Fix Fixer checklist empty guard |
-| 0 rows sur la plupart des workflows | QA execution-only seulement | BATCH_DATE ajustable, golden data nécessaires |
-| Sessions non parsées | Connexions Oracle absentes du code | Accès repository Informatica nécessaire |
+| Validation SCD2 complet (wf_accounts_scd2) | ❌ En cours | Faible (fix guard + retest) |
+| Validation workflow CRITICAL (wf_transactions_hist) | ❌ Non testé | Moyen |
+| Test sur 1 workflow réel client (données masquées) | ❌ Aucun | Élevé (accès repository Informatica) |
+| Gestion des connexions physiques (Sessions) | ❌ Non couvert | Élevé |
+| Interface utilisateur minimale | ❌ CLI uniquement | Moyen |
+| Documentation d'installation et support | ⚠️ Partielle | Faible |
 
 ---
 
