@@ -1,0 +1,10 @@
+{
+  "transpiler": "bladebridge",
+  "source": "informatica",
+  "target": "databricks",
+  "output_format": "pyspark",
+  "options": {
+    "generate_comments": true,
+    "preserve_column_names": true
+  }
+}
