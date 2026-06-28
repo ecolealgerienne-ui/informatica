@@ -40,6 +40,7 @@ FEASIBILITY_LABELS = {
     "LOW":    ("Intervention experte", "#ef4444"),
 }
 
+
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
@@ -259,7 +260,7 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
     stat_cards = []
     kpis = [
         ("Workflows analysés", str(summary["count"]), f"{summary['total_transformations']} transformations"),
-        ("Score moyen", str(summary["avg_score"]), "complexité (max observé: 35)"),
+        ("Score moyen", str(summary["avg_score"]), "complexité de migration (max observé: 35)"),
     ]
     for title, value, sub in kpis:
         stat_cards.append(f"""
@@ -279,7 +280,6 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
         score = c.get("total_score", 0)
         days = c.get("estimated_migration_days", "—")
         platform = r.get("target_platform", "python")
-        feasibility = r.get("auto_conversion_feasibility", "MEDIUM")
         n_transfo = len(wf.get("transformations", []))
         sources = ", ".join(s.get("name", "") for s in wf.get("sources", []))
         wf_id = wf.get("workflow_id", fname)
@@ -291,7 +291,6 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
           <td>{_flag_badge(flag)} <strong style="margin-left:0.4rem">{score}</strong></td>
           <td>{_platform_badge(platform)}</td>
           <td>{days} j</td>
-          <td>{_feasibility_badge(feasibility)}</td>
           <td style="font-size:0.8rem;color:#6b7280">{n_transfo}</td>
           <td style="font-size:0.75rem;color:#6b7280;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{sources}</td>
         </tr>""")
@@ -351,7 +350,7 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
     </div>
     <div style="text-align:right">
       <div style="font-size:0.75rem;color:#94a3b8">Généré le {now}</div>
-      <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.2rem">Plateforme d'Intelligence de Migration</div>
+      <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.2rem">Plateforme d'Analyse de Migration</div>
     </div>
   </div>
 </div>
@@ -360,7 +359,7 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
 
   <div class="alert alert-info">
     Ce rapport présente l'inventaire complet de votre parc Informatica PowerCenter.
-    Chaque workflow a été analysé automatiquement et scoré selon une grille formelle.
+    Chaque workflow a été analysé et scoré selon une grille de complexité formelle.
     Cliquez sur un workflow pour accéder à sa fiche détaillée.
   </div>
 
@@ -402,7 +401,6 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
           <th>Complexité / Score</th>
           <th>Cible recommandée</th>
           <th>Estimation</th>
-          <th>Faisabilité IA</th>
           <th>Transfo.</th>
           <th>Source principale</th>
         </tr>
@@ -418,7 +416,7 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
 
 <div class="footer">
   <div>Rapport Phase 1 — {project_name} — {now}</div>
-  <div style="margin-top:0.25rem">Plateforme d'Intelligence de Migration Informatica PowerCenter</div>
+  <div style="margin-top:0.25rem">Analyse &amp; Inventaire Informatica PowerCenter</div>
 </div>
 
 </body>
@@ -892,10 +890,6 @@ def generate_workflow_page(wf: dict, project_name: str, output_dir: Path) -> Non
         <div style="margin-bottom:0.3rem">{_platform_badge(platform)}</div>
         <div style="font-size:0.75rem;color:#6b7280">Cible recommandée</div>
       </div>
-      <div style="text-align:center">
-        <div style="margin-bottom:0.3rem">{_feasibility_badge(feasibility)}</div>
-        <div style="font-size:0.75rem;color:#6b7280">Faisabilité IA</div>
-      </div>
     </div>
   </div>
 
@@ -956,7 +950,7 @@ def generate_workflow_page(wf: dict, project_name: str, output_dir: Path) -> Non
         <div class="section-label">Étapes Phase 2 recommandées</div>
         <ul style="font-size:0.8rem;color:#374151;padding-left:1.2rem;margin-top:0.5rem">
           <li>Génération du code {PLATFORM_LABELS.get(platform,'Python')}</li>
-          {'<li>Correction sémantique LLM (supervision experte)</li>' if flag in ('HIGH','CRITICAL') else '<li>Vérification statique automatique</li>'}
+          {'<li>Correction sémantique (supervision experte)</li>' if flag in ('HIGH','CRITICAL') else '<li>Vérification statique du code généré</li>'}
           <li>Documentation métier bilingue</li>
           <li>Recette data diff vs golden dataset</li>
         </ul>
