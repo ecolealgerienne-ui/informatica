@@ -1,0 +1,956 @@
+{
+  "workflow_id": "wf_unconnected_lkp",
+  "mapping_id": "m_unconnected_lkp",
+  "parsed_at": "2026-06-28T13:02:39.091735+00:00",
+  "routing_decision": {
+    "target_platform": "databricks",
+    "rationale": "Score of 22 (CRITICAL) driven by 3 unconnected lookups with multi-column returns and 14 derived fields; Databricks required for production implementation.",
+    "auto_conversion_feasibility": "MEDIUM",
+    "human_intervention_required": true
+  },
+  "workflow_complexity": {
+    "total_score": 22,
+    "flag": "CRITICAL",
+    "estimated_migration_days": ">5",
+    "auto_conversion": false,
+    "score_breakdown": {
+      "transformations": {
+        "SQ_EMPLOYES": 4,
+        "LKP_REF_PAYS": 3,
+        "LKP_GRADE_COEFF": 3,
+        "LKP_REF_DEPT": 3,
+        "EXP_EMP_ENRICH": 6,
+        "FIL_PAYS_CONNU": 1
+      },
+      "global_modifiers": {
+        "transformation_count_5_10": 1,
+        "has_parameter_file": 1
+      }
+    }
+  },
+  "session": {
+    "parameter_file": "",
+    "variables": []
+  },
+  "sources": [],
+  "targets": [],
+  "transformations": [
+    {
+      "name": "SQ_EMPLOYES",
+      "type": "Source Qualifier",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 4,
+      "score_breakdown": {
+        "base_score": 1,
+        "has_sql_override": 2,
+        "has_oracle_to_date": 1
+      },
+      "has_proprietary_functions": [
+        "TO_DATE"
+      ],
+      "python_equivalents": {
+        "TO_DATE": "pd.to_datetime(str, format='%Y-%m-%d')"
+      },
+      "ports": [
+        {
+          "name": "EMP_ID",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "NOM",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRENOM",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DEPT_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "COUNTRY_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SITE_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SALAIRE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "GRADE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "5",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CONTRAT_TYPE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DATE_EMBAUCHE",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "STATUT_EMP",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "5",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "has_sql_override": true,
+      "sql_override": "SELECT EMP_ID, NOM, PRENOM, DEPT_CODE, COUNTRY_CODE, SITE_CODE, SALAIRE, GRADE, CONTRAT_TYPE, DATE_EMBAUCHE, STATUT_EMP FROM EMPLOYES WHERE STATUT_EMP = 'ACTIF' AND DATE_EMBAUCHE <= TO_DATE('$$BATCH_DATE', 'YYYY-MM-DD')",
+      "sql_dialect": "oracle",
+      "sql_analysis": {
+        "available": true,
+        "dialect": "oracle",
+        "sql_length": 219,
+        "tables_referenced": [
+          "EMPLOYES"
+        ],
+        "oracle_functions": [
+          "TO_DATE"
+        ],
+        "complexity_hints": {
+          "has_analytical_functions": false,
+          "has_subquery": false,
+          "has_union": false,
+          "select_distinct": false,
+          "has_oracle_rownum": false,
+          "has_oracle_to_date": true
+        },
+        "spark_sql": "SELECT EMP_ID, NOM, PRENOM, DEPT_CODE, COUNTRY_CODE, SITE_CODE, SALAIRE, GRADE, CONTRAT_TYPE, DATE_EMBAUCHE, STATUT_EMP FROM EMPLOYES WHERE STATUT_EMP = 'ACTIF' AND DATE_EMBAUCHE <= TO_DATE('$$BATCH_DATE')"
+      },
+      "notes": "SQL override with parameterized TO_DATE; $$BATCH_DATE placeholder requires runtime substitution"
+    },
+    {
+      "name": "LKP_REF_PAYS",
+      "type": "Lookup Procedure",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 3,
+      "score_breakdown": {
+        "base_score": 1,
+        "lookup_unconnected": 2
+      },
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "IN_COUNTRY_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PAYS_LABEL",
+          "datatype": "string",
+          "port_type": "RETURN",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ZONE_GEO",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "FISCAL_RATE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "5",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "lookup_subtype": "UNCONNECTED",
+      "ref_table": "REF_PAYS",
+      "condition": "IN_COUNTRY_CODE = COUNTRY_CODE",
+      "cache_persistent": false,
+      "notes": "Called as :LKP.LKP_REF_PAYS(COUNTRY_CODE) from Expression; returns multiple columns (PAYS_LABEL, ZONE_GEO, FISCAL_RATE)"
+    },
+    {
+      "name": "LKP_GRADE_COEFF",
+      "type": "Lookup Procedure",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 3,
+      "score_breakdown": {
+        "base_score": 1,
+        "lookup_unconnected": 2
+      },
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "IN_GRADE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "5",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "GRADE_LABEL",
+          "datatype": "string",
+          "port_type": "RETURN",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "COEFF_ANCIENNETE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "5",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BONUS_RATE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "5",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "lookup_subtype": "UNCONNECTED",
+      "ref_table": "REF_GRADE_COEFF",
+      "condition": "IN_GRADE = GRADE",
+      "cache_persistent": false,
+      "notes": "Called as :LKP.LKP_GRADE_COEFF(GRADE) from Expression; returns GRADE_LABEL and COEFF_ANCIENNETE"
+    },
+    {
+      "name": "EXP_EMP_ENRICH",
+      "type": "Expression",
+      "complexity_flag": "HIGH",
+      "complexity_score": 6,
+      "score_breakdown": {
+        "base_score": 1,
+        "computed_fields_9_plus": 2,
+        "has_datediff": 1,
+        "has_decode_complex": 2
+      },
+      "has_proprietary_functions": [
+        "LTRIM",
+        "RTRIM",
+        "UPPER",
+        "INITCAP",
+        "DATEDIFF",
+        "TO_DATE",
+        "NVL",
+        "DECODE",
+        "SYSDATE"
+      ],
+      "python_equivalents": {
+        "LTRIM": "str.lstrip()",
+        "RTRIM": "str.rstrip()",
+        "UPPER": "str.upper()",
+        "INITCAP": "str.title()",
+        "DATEDIFF": "(date1 - date2).dt.days for DD; explicit boolean pattern for YY",
+        "TO_DATE": "pd.to_datetime()",
+        "NVL": "fillna()",
+        "DECODE": "map() or np.where()",
+        "SYSDATE": "datetime.now()"
+      },
+      "ports": [
+        {
+          "name": "EMP_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "NOM",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRENOM",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DEPT_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "COUNTRY_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SITE_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SALAIRE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "GRADE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "5",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CONTRAT_TYPE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DATE_EMBAUCHE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "NOM_CLEAN",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "LTRIM(RTRIM(UPPER(NOM)))"
+        },
+        {
+          "name": "PRENOM_CLEAN",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "LTRIM(RTRIM(INITCAP(PRENOM)))"
+        },
+        {
+          "name": "PAYS_LABEL",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ":LKP.LKP_REF_PAYS(COUNTRY_CODE)"
+        },
+        {
+          "name": "ZONE_GEO",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ":LKP.LKP_REF_PAYS(COUNTRY_CODE).ZONE_GEO"
+        },
+        {
+          "name": "FISCAL_RATE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "5",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": "NVL(:LKP.LKP_REF_PAYS(COUNTRY_CODE).FISCAL_RATE, 0.20)"
+        },
+        {
+          "name": "GRADE_LABEL",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ":LKP.LKP_GRADE_COEFF(GRADE)"
+        },
+        {
+          "name": "COEFF_ANCIENNETE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "5",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": "NVL(:LKP.LKP_GRADE_COEFF(GRADE).COEFF_ANCIENNETE, 1.0)"
+        },
+        {
+          "name": "ANCIENNETE_ANS",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "5",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "DATEDIFF(TO_DATE('$$BATCH_DATE', 'YYYY-MM-DD'), DATE_EMBAUCHE, 'YY')"
+        },
+        {
+          "name": "SALAIRE_BRUT_AJUSTE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": "SALAIRE * NVL(:LKP.LKP_GRADE_COEFF(GRADE).COEFF_ANCIENNETE, 1.0)"
+        },
+        {
+          "name": "RETENUE_FISCALE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": "SALAIRE_BRUT_AJUSTE * NVL(:LKP.LKP_REF_PAYS(COUNTRY_CODE).FISCAL_RATE, 0.20)"
+        },
+        {
+          "name": "SALAIRE_NET",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": "SALAIRE_BRUT_AJUSTE - RETENUE_FISCALE"
+        },
+        {
+          "name": "CONTRAT_LABEL",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "DECODE(CONTRAT_TYPE, 'CDI', 'Contrat Duree Indeterminee', 'CDD', 'Contrat Duree Determinee', 'INT', 'Interimaire', 'STG', 'Stage', 'Autre')"
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": "SYSDATE"
+        },
+        {
+          "name": "BATCH_DATE_OUT",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": "TO_DATE($$BATCH_DATE, 'YYYY-MM-DD')"
+        }
+      ],
+      "computed_fields": [
+        {
+          "name": "NOM_CLEAN",
+          "expression": "LTRIM(RTRIM(UPPER(NOM)))"
+        },
+        {
+          "name": "PRENOM_CLEAN",
+          "expression": "LTRIM(RTRIM(INITCAP(PRENOM)))"
+        },
+        {
+          "name": "PAYS_LABEL",
+          "expression": ":LKP.LKP_REF_PAYS(COUNTRY_CODE)"
+        },
+        {
+          "name": "ZONE_GEO",
+          "expression": ":LKP.LKP_REF_PAYS(COUNTRY_CODE).ZONE_GEO"
+        },
+        {
+          "name": "FISCAL_RATE",
+          "expression": "NVL(:LKP.LKP_REF_PAYS(COUNTRY_CODE).FISCAL_RATE, 0.20)"
+        },
+        {
+          "name": "GRADE_LABEL",
+          "expression": ":LKP.LKP_GRADE_COEFF(GRADE)"
+        },
+        {
+          "name": "COEFF_ANCIENNETE",
+          "expression": "NVL(:LKP.LKP_GRADE_COEFF(GRADE).COEFF_ANCIENNETE, 1.0)"
+        },
+        {
+          "name": "ANCIENNETE_ANS",
+          "expression": "DATEDIFF(TO_DATE('$$BATCH_DATE', 'YYYY-MM-DD'), DATE_EMBAUCHE, 'YY')"
+        },
+        {
+          "name": "SALAIRE_BRUT_AJUSTE",
+          "expression": "SALAIRE * NVL(:LKP.LKP_GRADE_COEFF(GRADE).COEFF_ANCIENNETE, 1.0)"
+        },
+        {
+          "name": "RETENUE_FISCALE",
+          "expression": "SALAIRE_BRUT_AJUSTE * NVL(:LKP.LKP_REF_PAYS(COUNTRY_CODE).FISCAL_RATE, 0.20)"
+        },
+        {
+          "name": "SALAIRE_NET",
+          "expression": "SALAIRE_BRUT_AJUSTE - RETENUE_FISCALE"
+        },
+        {
+          "name": "CONTRAT_LABEL",
+          "expression": "DECODE(CONTRAT_TYPE, 'CDI', 'Contrat Duree Indeterminee', 'CDD', 'Contrat Duree Determinee', 'INT', 'Interimaire', 'STG', 'Stage', 'Autre')"
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "expression": "SYSDATE"
+        },
+        {
+          "name": "BATCH_DATE_OUT",
+          "expression": "TO_DATE($$BATCH_DATE, 'YYYY-MM-DD')"
+        }
+      ],
+      "notes": "14 computed fields with 3 unconnected lookup calls; DATEDIFF calculates seniority in years; multiple dependent derivations (SALAIRE_BRUT_AJUSTE, RETENUE_FISCALE, SALAIRE_NET)"
+    },
+    {
+      "name": "FIL_PAYS_CONNU",
+      "type": "Filter",
+      "complexity_flag": "LOW",
+      "complexity_score": 1,
+      "score_breakdown": {
+        "base_score": 0,
+        "compound_condition": 1
+      },
+      "has_proprietary_functions": [
+        "ISNULL"
+      ],
+      "python_equivalents": {
+        "ISNULL": "isna()",
+        "NOT ISNULL": "notna()"
+      },
+      "ports": [
+        {
+          "name": "PAYS_LABEL",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "condition": "NOT ISNULL(PAYS_LABEL) AND PAYS_LABEL != ''",
+      "notes": "Filters rows where PAYS_LABEL is null or empty; compound AND condition"
+    },
+    {
+      "name": "LKP_REF_DEPT",
+      "type": "Lookup Procedure",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 3,
+      "score_breakdown": {
+        "base_score": 1,
+        "lookup_unconnected": 2
+      },
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "IN_DEPT_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DEPT_LABEL",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DIRECTION_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "lookup_subtype": "UNCONNECTED",
+      "ref_table": "REF_DEPARTEMENT",
+      "condition": "IN_DEPT_CODE = DEPT_CODE",
+      "cache_persistent": false,
+      "notes": "Unconnected lookup; usage not visible in provided Expression—verify necessity in final output"
+    },
+    {
+      "name": "TGT_DIM_EMPLOYES",
+      "type": "Target Definition",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 0,
+      "score_breakdown": {},
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "EMP_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "NOM_CLEAN",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRENOM_CLEAN",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DEPT_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DEPT_LABEL",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DIRECTION_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "COUNTRY_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PAYS_LABEL",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ZONE_GEO",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "GRADE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "5",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "GRADE_LABEL",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CONTRAT_TYPE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CONTRAT_LABEL",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SALAIRE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SALAIRE_BRUT_AJUSTE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "RETENUE_FISCALE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SALAIRE_NET",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "FISCAL_RATE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "5",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "COEFF_ANCIENNETE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "5",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ANCIENNETE_ANS",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "5",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DATE_EMBAUCHE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BATCH_DATE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ]
+    }
+  ],
+  "data_flow": [
+    {
+      "from": null,
+      "to": null,
+      "fields": [
+        "ANCIENNETE_ANS",
+        "BATCH_DATE_OUT",
+        "COEFF_ANCIENNETE",
+        "CONTRAT_LABEL",
+        "CONTRAT_TYPE",
+        "COUNTRY_CODE",
+        "DATE_EMBAUCHE",
+        "DEPT_CODE",
+        "DEPT_LABEL",
+        "DIRECTION_CODE",
+        "DW_LOAD_DATE",
+        "EMP_ID",
+        "FISCAL_RATE",
+        "GRADE",
+        "GRADE_LABEL",
+        "NOM",
+        "NOM_CLEAN",
+        "PAYS_LABEL",
+        "PRENOM",
+        "PRENOM_CLEAN",
+        "RETENUE_FISCALE",
+        "SALAIRE",
+        "SALAIRE_BRUT_AJUSTE",
+        "SALAIRE_NET",
+        "SITE_CODE",
+        "ZONE_GEO"
+      ]
+    }
+  ],
+  "flags": {
+    "has_java_transformation": false,
+    "has_dynamic_lookup": false,
+    "has_custom_function": false,
+    "has_parameter_file": true,
+    "has_sql_override": true,
+    "oracle_proprietary_functions": [
+      "TO_DATE",
+      "DATEDIFF",
+      "DECODE",
+      "NVL",
+      "ISNULL",
+      "SYSDATE",
+      "LTRIM",
+      "RTRIM",
+      "INITCAP",
+      "UPPER"
+    ],
+    "requires_human_review": [
+      "Unconnected lookup pre-loading with multi-column return structure",
+      "Parameter file substitution ($$BATCH_DATE) integration at runtime",
+      "DATEDIFF calculation requires explicit boolean pattern for year-based seniority",
+      "Dependent field chain (SALAIRE_BRUT_AJUSTE → RETENUE_FISCALE → SALAIRE_NET) needs careful null-safety handling",
+      "Verify LKP_REF_DEPT usage in final output mapping"
+    ]
+  }
+}

@@ -1,0 +1,688 @@
+{
+  "workflow_id": "wf_products_dim",
+  "mapping_id": "m_products_dim",
+  "parsed_at": "2026-06-28T12:54:24.311186+00:00",
+  "routing_decision": {
+    "target_platform": "pyspark",
+    "rationale": "Score 11 (HIGH) exceeds Python threshold; SQL override complexity and nested IIF logic warrant PySpark for maintainability and vectorization.",
+    "auto_conversion_feasibility": "MEDIUM",
+    "human_intervention_required": false
+  },
+  "workflow_complexity": {
+    "total_score": 11,
+    "flag": "HIGH",
+    "estimated_migration_days": "3-5",
+    "auto_conversion": false,
+    "score_breakdown": {
+      "transformations": {
+        "SQ_PRODUCTS": 4,
+        "LKP_CATEGORY": 1,
+        "EXP_PRODUCTS_TRANSFORM": 4,
+        "FIL_VALID_CATEGORY": 1
+      },
+      "global_modifiers": {
+        "has_parameter_file": 1
+      }
+    }
+  },
+  "session": {
+    "parameter_file": "",
+    "variables": []
+  },
+  "sources": [],
+  "targets": [],
+  "transformations": [
+    {
+      "name": "SQ_PRODUCTS",
+      "type": "Source Qualifier",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 4,
+      "score_breakdown": {
+        "base_score": 1,
+        "has_sql_override": 2,
+        "has_oracle_to_date": 1
+      },
+      "has_proprietary_functions": [
+        "TO_DATE"
+      ],
+      "python_equivalents": {
+        "TO_DATE": "pd.to_datetime(str, format='%Y-%m-%d')"
+      },
+      "ports": [
+        {
+          "name": "PRODUCT_ID",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRODUCT_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRODUCT_NAME",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORY",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SUBCATEGORY",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "UNIT_PRICE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "UNIT_COST",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SUPPLIER_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "STATUS_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DATE_CREATION",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "has_sql_override": true,
+      "sql_override": "SELECT PRODUCT_ID, PRODUCT_CODE, PRODUCT_NAME, CATEGORY, SUBCATEGORY, UNIT_PRICE, UNIT_COST, SUPPLIER_CODE, STATUS_CODE, DATE_CREATION FROM PRODUCTS WHERE STATUS_CODE != 'D' AND DATE_CREATION >= TO_DATE('$$BATCH_DATE', 'YYYY-MM-DD')",
+      "sql_dialect": "oracle",
+      "sql_analysis": {
+        "available": true,
+        "dialect": "oracle",
+        "sql_length": 232,
+        "tables_referenced": [
+          "PRODUCTS"
+        ],
+        "oracle_functions": [
+          "TO_DATE"
+        ],
+        "complexity_hints": {
+          "has_analytical_functions": false,
+          "has_subquery": false,
+          "has_union": false,
+          "select_distinct": false,
+          "has_oracle_rownum": false,
+          "has_oracle_to_date": true
+        },
+        "spark_sql": "SELECT PRODUCT_ID, PRODUCT_CODE, PRODUCT_NAME, CATEGORY, SUBCATEGORY, UNIT_PRICE, UNIT_COST, SUPPLIER_CODE, STATUS_CODE, DATE_CREATION FROM PRODUCTS WHERE STATUS_CODE <> 'D' AND DATE_CREATION >= TO_DATE('$$BATCH_DATE')"
+      },
+      "notes": "SQL override with parameterized TO_DATE filter; convert to pandas filter mask with pd.to_datetime() for parameter substitution."
+    },
+    {
+      "name": "LKP_CATEGORY",
+      "type": "Lookup Procedure",
+      "complexity_flag": "LOW",
+      "complexity_score": 1,
+      "score_breakdown": {
+        "base_score": 1,
+        "lookup_connected_static": 0
+      },
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "IN_CATEGORY",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORY_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORY_LABEL_FR",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORY_LABEL_EN",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "lookup_subtype": "CONNECTED_STATIC",
+      "ref_table": "REF_CATEGORY",
+      "condition": "IN_CATEGORY = CATEGORY_RAW",
+      "cache_persistent": false,
+      "notes": "Standard connected lookup on CATEGORY_RAW; implement as df.merge(ref_df, left_on='CATEGORY_RAW', right_on='IN_CATEGORY', how='left')."
+    },
+    {
+      "name": "EXP_PRODUCTS_TRANSFORM",
+      "type": "Expression",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 4,
+      "score_breakdown": {
+        "base_score": 1,
+        "computed_fields_4_8": 1,
+        "has_iif_nested": 2
+      },
+      "has_proprietary_functions": [
+        "LTRIM",
+        "RTRIM",
+        "UPPER",
+        "INITCAP",
+        "IIF",
+        "SYSDATE",
+        "TO_DATE"
+      ],
+      "python_equivalents": {
+        "LTRIM": "str.lstrip()",
+        "RTRIM": "str.rstrip()",
+        "UPPER": "str.upper()",
+        "INITCAP": "str.title()",
+        "IIF": "np.where() or np.select()",
+        "SYSDATE": "datetime.now()",
+        "TO_DATE": "pd.to_datetime()"
+      },
+      "ports": [
+        {
+          "name": "PRODUCT_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRODUCT_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRODUCT_NAME",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORY",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SUBCATEGORY",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "UNIT_PRICE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "UNIT_COST",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SUPPLIER_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "STATUS_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DATE_CREATION",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORY_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORY_LABEL_FR",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRODUCT_CODE_CLEAN",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "LTRIM(RTRIM(UPPER(PRODUCT_CODE)))"
+        },
+        {
+          "name": "PRODUCT_NAME_CLEAN",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "LTRIM(RTRIM(INITCAP(PRODUCT_NAME)))"
+        },
+        {
+          "name": "SUBCATEGORY_CLEAN",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "LTRIM(RTRIM(UPPER(SUBCATEGORY)))"
+        },
+        {
+          "name": "MARGIN_PCT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "8",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": "IIF(UNIT_PRICE > 0, (UNIT_PRICE - UNIT_COST) / UNIT_PRICE * 100, 0)"
+        },
+        {
+          "name": "MARGIN_BAND",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "IIF(MARGIN_PCT >= 50, 'HIGH', IIF(MARGIN_PCT >= 20, 'MEDIUM', 'LOW'))"
+        },
+        {
+          "name": "SUPPLIER_CODE_CLEAN",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "LTRIM(RTRIM(UPPER(SUPPLIER_CODE)))"
+        },
+        {
+          "name": "BATCH_DATE_OUT",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": "TO_DATE($$BATCH_DATE, 'YYYY-MM-DD')"
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": "SYSDATE"
+        }
+      ],
+      "computed_fields": [
+        {
+          "name": "PRODUCT_CODE_CLEAN",
+          "expression": "LTRIM(RTRIM(UPPER(PRODUCT_CODE)))"
+        },
+        {
+          "name": "PRODUCT_NAME_CLEAN",
+          "expression": "LTRIM(RTRIM(INITCAP(PRODUCT_NAME)))"
+        },
+        {
+          "name": "SUBCATEGORY_CLEAN",
+          "expression": "LTRIM(RTRIM(UPPER(SUBCATEGORY)))"
+        },
+        {
+          "name": "MARGIN_PCT",
+          "expression": "IIF(UNIT_PRICE > 0, (UNIT_PRICE - UNIT_COST) / UNIT_PRICE * 100, 0)"
+        },
+        {
+          "name": "MARGIN_BAND",
+          "expression": "IIF(MARGIN_PCT >= 50, 'HIGH', IIF(MARGIN_PCT >= 20, 'MEDIUM', 'LOW'))"
+        },
+        {
+          "name": "SUPPLIER_CODE_CLEAN",
+          "expression": "LTRIM(RTRIM(UPPER(SUPPLIER_CODE)))"
+        },
+        {
+          "name": "BATCH_DATE_OUT",
+          "expression": "TO_DATE($$BATCH_DATE, 'YYYY-MM-DD')"
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "expression": "SYSDATE"
+        }
+      ],
+      "notes": "8 computed fields with nested IIF in MARGIN_BAND; use np.select([cond1, cond2, ...], [val1, val2, ...]) for chained conditionals instead of nested IIF."
+    },
+    {
+      "name": "FIL_VALID_CATEGORY",
+      "type": "Filter",
+      "complexity_flag": "LOW",
+      "complexity_score": 1,
+      "score_breakdown": {
+        "base_score": 0,
+        "compound_condition": 1
+      },
+      "has_proprietary_functions": [
+        "ISNULL"
+      ],
+      "python_equivalents": {
+        "ISNULL": "col.isna()"
+      },
+      "ports": [
+        {
+          "name": "CATEGORY_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "condition": "NOT ISNULL(CATEGORY_CODE) AND CATEGORY_CODE != 'UNKN'",
+      "notes": "Compound AND filter; mask using df[~df['CATEGORY_CODE'].isna() & (df['CATEGORY_CODE'] != 'UNKN')]."
+    },
+    {
+      "name": "TGT_DIM_PRODUCTS",
+      "type": "Target Definition",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 0,
+      "score_breakdown": {},
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "PRODUCT_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRODUCT_CODE_CLEAN",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRODUCT_NAME_CLEAN",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORY_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORY_LABEL_FR",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "100",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SUBCATEGORY_CLEAN",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "50",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "UNIT_PRICE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "UNIT_COST",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "MARGIN_PCT",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "8",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "MARGIN_BAND",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SUPPLIER_CODE_CLEAN",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "STATUS_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DATE_CREATION",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BATCH_DATE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ]
+    }
+  ],
+  "data_flow": [
+    {
+      "from": null,
+      "to": null,
+      "fields": [
+        "BATCH_DATE_OUT",
+        "CATEGORY",
+        "CATEGORY_CODE",
+        "CATEGORY_LABEL_FR",
+        "DATE_CREATION",
+        "DW_LOAD_DATE",
+        "MARGIN_BAND",
+        "MARGIN_PCT",
+        "PRODUCT_CODE",
+        "PRODUCT_CODE_CLEAN",
+        "PRODUCT_ID",
+        "PRODUCT_NAME",
+        "PRODUCT_NAME_CLEAN",
+        "STATUS_CODE",
+        "SUBCATEGORY",
+        "SUBCATEGORY_CLEAN",
+        "SUPPLIER_CODE",
+        "SUPPLIER_CODE_CLEAN",
+        "UNIT_COST",
+        "UNIT_PRICE"
+      ]
+    }
+  ],
+  "flags": {
+    "has_java_transformation": false,
+    "has_dynamic_lookup": false,
+    "has_custom_function": false,
+    "has_parameter_file": true,
+    "has_sql_override": true,
+    "oracle_proprietary_functions": [
+      "TO_DATE",
+      "LTRIM",
+      "RTRIM",
+      "INITCAP",
+      "SYSDATE"
+    ],
+    "requires_human_review": []
+  }
+}

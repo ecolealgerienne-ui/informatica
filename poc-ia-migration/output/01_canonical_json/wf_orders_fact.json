@@ -1,0 +1,1065 @@
+{
+  "workflow_id": "wf_orders_fact",
+  "mapping_id": "m_orders_fact",
+  "parsed_at": "2026-06-28T12:53:05.443700+00:00",
+  "routing_decision": {
+    "target_platform": "databricks",
+    "rationale": "CRITICAL complexity score (21) exceeds databricks threshold (>=15); multi-stage workflow with SQL subquery and distributed aggregation requires Databricks for SQL optimization and scalability.",
+    "auto_conversion_feasibility": "MEDIUM",
+    "human_intervention_required": true
+  },
+  "workflow_complexity": {
+    "total_score": 21,
+    "flag": "CRITICAL",
+    "estimated_migration_days": ">5",
+    "auto_conversion": false,
+    "score_breakdown": {
+      "transformations": {
+        "SQ_ORDERS": 4,
+        "SQ_ORDER_LINES": 7,
+        "JNR_ORDERS_LINES": 2,
+        "LKP_CLIENT_SEGMENT": 1,
+        "EXP_ORDER_CALC": 3,
+        "AGG_MONTHLY_ORDERS": 2
+      },
+      "global_modifiers": {
+        "transformation_count_5_10": 1,
+        "has_parameter_file": 1
+      }
+    }
+  },
+  "session": {
+    "parameter_file": "",
+    "variables": []
+  },
+  "sources": [],
+  "targets": [],
+  "transformations": [
+    {
+      "name": "SQ_ORDERS",
+      "type": "Source Qualifier",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 4,
+      "score_breakdown": {
+        "base_score": 1,
+        "has_sql_override": 2,
+        "has_oracle_to_date": 1
+      },
+      "has_proprietary_functions": [
+        "TO_DATE"
+      ],
+      "python_equivalents": {
+        "TO_DATE": "pd.to_datetime(str, format='%Y-%m-%d')"
+      },
+      "ports": [
+        {
+          "name": "ORDER_ID",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CLIENT_ID",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRODUCT_ID",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_DATE",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "QUANTITY",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "UNIT_PRICE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DISCOUNT_PCT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "5",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CHANNEL_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "COUNTRY_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_STATUS",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "has_sql_override": true,
+      "sql_override": "SELECT O.ORDER_ID, O.CLIENT_ID, O.PRODUCT_ID, O.ORDER_DATE, O.QUANTITY, O.UNIT_PRICE, O.DISCOUNT_PCT, O.CHANNEL_CODE, O.COUNTRY_CODE, O.ORDER_STATUS FROM ORDERS O WHERE O.ORDER_DATE >= TO_DATE('$$BATCH_DATE', 'YYYY-MM-DD') AND O.ORDER_STATUS NOT IN ('CANCELLED', 'DRAFT')",
+      "sql_dialect": "oracle",
+      "sql_analysis": {
+        "available": true,
+        "dialect": "oracle",
+        "sql_length": 271,
+        "tables_referenced": [
+          "ORDERS"
+        ],
+        "oracle_functions": [
+          "TO_DATE"
+        ],
+        "complexity_hints": {
+          "has_analytical_functions": false,
+          "has_subquery": false,
+          "has_union": false,
+          "select_distinct": false,
+          "has_oracle_rownum": false,
+          "has_oracle_to_date": true
+        },
+        "spark_sql": "SELECT O.ORDER_ID, O.CLIENT_ID, O.PRODUCT_ID, O.ORDER_DATE, O.QUANTITY, O.UNIT_PRICE, O.DISCOUNT_PCT, O.CHANNEL_CODE, O.COUNTRY_CODE, O.ORDER_STATUS FROM ORDERS AS O WHERE O.ORDER_DATE >= TO_DATE('$$BATCH_DATE') AND NOT O.ORDER_STATUS IN ('CANCELLED', 'DRAFT')"
+      },
+      "notes": "SQL override with date filtering; parameter $BATCH_DATE requires runtime substitution."
+    },
+    {
+      "name": "SQ_ORDER_LINES",
+      "type": "Source Qualifier",
+      "complexity_flag": "HIGH",
+      "complexity_score": 7,
+      "score_breakdown": {
+        "base_score": 1,
+        "has_sql_override": 2,
+        "has_oracle_to_date": 1,
+        "has_subquery": 3
+      },
+      "has_proprietary_functions": [
+        "TO_DATE",
+        "NVL"
+      ],
+      "python_equivalents": {
+        "TO_DATE": "pd.to_datetime(str, format='%Y-%m-%d')",
+        "NVL": "col.fillna(default)"
+      },
+      "ports": [
+        {
+          "name": "LINE_ID",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_ID",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PRODUCT_ID",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "LINE_QTY",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "LINE_AMOUNT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PROMO_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "has_sql_override": true,
+      "sql_override": "SELECT LINE_ID, ORDER_ID, PRODUCT_ID, LINE_QTY, LINE_AMOUNT, NVL(PROMO_CODE, 'NONE') AS PROMO_CODE FROM ORDER_LINES WHERE ORDER_ID IN (SELECT ORDER_ID FROM ORDERS WHERE ORDER_DATE >= TO_DATE('$$BATCH_DATE', 'YYYY-MM-DD'))",
+      "sql_dialect": "oracle",
+      "sql_analysis": {
+        "available": true,
+        "dialect": "oracle",
+        "sql_length": 221,
+        "tables_referenced": [
+          "ORDER_LINES",
+          "ORDERS"
+        ],
+        "oracle_functions": [
+          "NVL",
+          "TO_DATE"
+        ],
+        "complexity_hints": {
+          "has_analytical_functions": false,
+          "has_subquery": true,
+          "has_union": false,
+          "select_distinct": false,
+          "has_oracle_rownum": false,
+          "has_oracle_to_date": true
+        },
+        "spark_sql": "SELECT LINE_ID, ORDER_ID, PRODUCT_ID, LINE_QTY, LINE_AMOUNT, COALESCE(PROMO_CODE, 'NONE') AS PROMO_CODE FROM ORDER_LINES WHERE ORDER_ID IN (SELECT ORDER_ID FROM ORDERS WHERE ORDER_DATE >= TO_DATE('$$BATCH_DATE'))"
+      },
+      "notes": "Subquery in WHERE clause (ORDER_ID IN SELECT...); rewrite as semi-join or push to Spark SQL for optimization."
+    },
+    {
+      "name": "JNR_ORDERS_LINES",
+      "type": "Joiner",
+      "complexity_flag": "LOW",
+      "complexity_score": 2,
+      "score_breakdown": {
+        "base_score": 2,
+        "inner_join": 0
+      },
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "ORDER_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CLIENT_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_DATE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "QUANTITY",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "UNIT_PRICE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DISCOUNT_PCT",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "5",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CHANNEL_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "COUNTRY_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "LINE_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "D_ORDER_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "LINE_QTY",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "LINE_AMOUNT",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PROMO_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "notes": "Join condition not specified in mapping extract; assume INNER JOIN on ORDER_ID. Verify join type and key columns before implementation."
+    },
+    {
+      "name": "LKP_CLIENT_SEGMENT",
+      "type": "Lookup Procedure",
+      "complexity_flag": "LOW",
+      "complexity_score": 1,
+      "score_breakdown": {
+        "base_score": 1,
+        "lookup_connected_static": 0
+      },
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "IN_CLIENT_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SEGMENT_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PAYS_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "lookup_subtype": "CONNECTED_STATIC",
+      "ref_table": "DIM_CLIENTS",
+      "condition": "IN_CLIENT_ID = CLIENT_ID",
+      "cache_persistent": false,
+      "notes": "Connected lookup on DIM_CLIENTS (IN_CLIENT_ID = CLIENT_ID); implement as df.merge(..., how='left') with dedup on first match."
+    },
+    {
+      "name": "EXP_ORDER_CALC",
+      "type": "Expression",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 3,
+      "score_breakdown": {
+        "base_score": 1,
+        "computed_fields_9_plus": 2
+      },
+      "has_proprietary_functions": [
+        "TO_INTEGER",
+        "TO_CHAR",
+        "LTRIM",
+        "RTRIM",
+        "UPPER",
+        "IIF",
+        "ISNULL",
+        "SYSDATE"
+      ],
+      "python_equivalents": {
+        "TO_INTEGER(TO_CHAR(ORDER_DATE, 'YYYY'))": "ORDER_DATE.dt.year",
+        "TO_INTEGER(TO_CHAR(ORDER_DATE, 'MM'))": "ORDER_DATE.dt.month",
+        "TO_INTEGER(TO_CHAR(ORDER_DATE, 'WW'))": "ORDER_DATE.dt.isocalendar().week.astype(int)",
+        "LTRIM(RTRIM(col))": "col.str.strip()",
+        "UPPER": "col.str.upper()",
+        "IIF(cond, val1, val2)": "np.where(cond, val1, val2)",
+        "ISNULL(col)": "col.isna()",
+        "SYSDATE": "datetime.now()"
+      },
+      "ports": [
+        {
+          "name": "ORDER_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CLIENT_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_DATE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "LINE_AMOUNT",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "UNIT_PRICE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "LINE_QTY",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DISCOUNT_PCT",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "5",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CHANNEL_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "COUNTRY_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PROMO_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "20",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SEGMENT_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PAYS_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "GROSS_AMOUNT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": "LINE_QTY * UNIT_PRICE"
+        },
+        {
+          "name": "DISCOUNT_AMOUNT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": "GROSS_AMOUNT * DISCOUNT_PCT / 100"
+        },
+        {
+          "name": "NET_AMOUNT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": "GROSS_AMOUNT - DISCOUNT_AMOUNT"
+        },
+        {
+          "name": "ORDER_YEAR",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "4",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "TO_INTEGER(TO_CHAR(ORDER_DATE, 'YYYY'))"
+        },
+        {
+          "name": "ORDER_MONTH",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "TO_INTEGER(TO_CHAR(ORDER_DATE, 'MM'))"
+        },
+        {
+          "name": "ORDER_WEEK",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "TO_INTEGER(TO_CHAR(ORDER_DATE, 'WW'))"
+        },
+        {
+          "name": "CHANNEL_CLEAN",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "LTRIM(RTRIM(UPPER(CHANNEL_CODE)))"
+        },
+        {
+          "name": "HAS_PROMO",
+          "datatype": "integer",
+          "port_type": "OUTPUT",
+          "precision": "1",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "IIF(PROMO_CODE != 'NONE' AND NOT ISNULL(PROMO_CODE), 1, 0)"
+        },
+        {
+          "name": "BATCH_DATE_OUT",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": "TO_DATE($$BATCH_DATE, 'YYYY-MM-DD')"
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": "SYSDATE"
+        }
+      ],
+      "computed_fields": [
+        {
+          "name": "GROSS_AMOUNT",
+          "expression": "LINE_QTY * UNIT_PRICE"
+        },
+        {
+          "name": "DISCOUNT_AMOUNT",
+          "expression": "GROSS_AMOUNT * DISCOUNT_PCT / 100"
+        },
+        {
+          "name": "NET_AMOUNT",
+          "expression": "GROSS_AMOUNT - DISCOUNT_AMOUNT"
+        },
+        {
+          "name": "ORDER_YEAR",
+          "expression": "TO_INTEGER(TO_CHAR(ORDER_DATE, 'YYYY'))"
+        },
+        {
+          "name": "ORDER_MONTH",
+          "expression": "TO_INTEGER(TO_CHAR(ORDER_DATE, 'MM'))"
+        },
+        {
+          "name": "ORDER_WEEK",
+          "expression": "TO_INTEGER(TO_CHAR(ORDER_DATE, 'WW'))"
+        },
+        {
+          "name": "CHANNEL_CLEAN",
+          "expression": "LTRIM(RTRIM(UPPER(CHANNEL_CODE)))"
+        },
+        {
+          "name": "HAS_PROMO",
+          "expression": "IIF(PROMO_CODE != 'NONE' AND NOT ISNULL(PROMO_CODE), 1, 0)"
+        },
+        {
+          "name": "BATCH_DATE_OUT",
+          "expression": "TO_DATE($$BATCH_DATE, 'YYYY-MM-DD')"
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "expression": "SYSDATE"
+        }
+      ],
+      "notes": "10 computed fields: arithmetic (GROSS_AMOUNT, DISCOUNT_AMOUNT, NET_AMOUNT), date extraction (ORDER_YEAR/MONTH/WEEK), string cleaning (CHANNEL_CLEAN), conditional logic (HAS_PROMO), and system date. All functions are standard with no nesting complexity."
+    },
+    {
+      "name": "AGG_MONTHLY_ORDERS",
+      "type": "Aggregator",
+      "complexity_flag": "LOW",
+      "complexity_score": 2,
+      "score_breakdown": {
+        "base_score": 2,
+        "simple_groupby": 0
+      },
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "CLIENT_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SEGMENT_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PAYS_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CHANNEL_CLEAN",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "COUNTRY_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_YEAR",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "4",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_MONTH",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_COUNT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "COUNT(ORDER_ID)"
+        },
+        {
+          "name": "TOTAL_GROSS",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "16",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": "SUM(GROSS_AMOUNT)"
+        },
+        {
+          "name": "TOTAL_DISCOUNT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "16",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": "SUM(DISCOUNT_AMOUNT)"
+        },
+        {
+          "name": "TOTAL_NET",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "16",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": "SUM(NET_AMOUNT)"
+        },
+        {
+          "name": "TOTAL_QTY",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "12",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "SUM(LINE_QTY)"
+        },
+        {
+          "name": "PROMO_ORDERS",
+          "datatype": "integer",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "SUM(HAS_PROMO)"
+        }
+      ],
+      "notes": "Aggregator transformation; group_by columns and aggregation functions not specified in extract. Verify sorted input requirement and aggregation expressions."
+    },
+    {
+      "name": "TGT_FACT_ORDERS",
+      "type": "Target Definition",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 0,
+      "score_breakdown": {},
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "CLIENT_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "SEGMENT_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PAYS_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CHANNEL_CLEAN",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "COUNTRY_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "3",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_YEAR",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "4",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_MONTH",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ORDER_COUNT",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "TOTAL_GROSS",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "16",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "TOTAL_DISCOUNT",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "16",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "TOTAL_NET",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "16",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "TOTAL_QTY",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "12",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PROMO_ORDERS",
+          "datatype": "integer",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BATCH_DATE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ]
+    }
+  ],
+  "data_flow": [
+    {
+      "from": null,
+      "to": null,
+      "fields": [
+        "BATCH_DATE_OUT",
+        "CHANNEL_CLEAN",
+        "CHANNEL_CODE",
+        "CLIENT_ID",
+        "COUNTRY_CODE",
+        "DISCOUNT_AMOUNT",
+        "DISCOUNT_PCT",
+        "DW_LOAD_DATE",
+        "GROSS_AMOUNT",
+        "HAS_PROMO",
+        "LINE_AMOUNT",
+        "LINE_ID",
+        "LINE_QTY",
+        "NET_AMOUNT",
+        "ORDER_COUNT",
+        "ORDER_DATE",
+        "ORDER_ID",
+        "ORDER_MONTH",
+        "ORDER_YEAR",
+        "PAYS_CODE",
+        "PROMO_CODE",
+        "PROMO_ORDERS",
+        "SEGMENT_CODE",
+        "TOTAL_DISCOUNT",
+        "TOTAL_GROSS",
+        "TOTAL_NET",
+        "TOTAL_QTY",
+        "UNIT_PRICE"
+      ]
+    }
+  ],
+  "flags": {
+    "has_java_transformation": false,
+    "has_dynamic_lookup": false,
+    "has_custom_function": false,
+    "has_parameter_file": true,
+    "has_sql_override": true,
+    "oracle_proprietary_functions": [
+      "TO_DATE",
+      "TO_CHAR",
+      "TO_INTEGER",
+      "NVL",
+      "LTRIM",
+      "RTRIM",
+      "UPPER",
+      "IIF",
+      "ISNULL",
+      "SYSDATE"
+    ],
+    "requires_human_review": [
+      "SQ_ORDER_LINES: SQL subquery in WHERE clause requires careful rewrite for Spark SQL push-down; consider semi-join or CTEmigration pattern.",
+      "JNR_ORDERS_LINES: Join condition missing from mapping extract; verify join key(s), join type (INNER/LEFT/OUTER), and any composite key handling.",
+      "EXP_ORDER_CALC: Complex date extraction (TO_CHAR+TO_INTEGER) → ensure PySpark handles timezone consistently with Informatica SYSDATE.",
+      "Parameter handling: $$BATCH_DATE appears in SQ_ORDERS and SQ_ORDER_LINES; verify parameter file structure and injection mechanism in Python/Spark context.",
+      "AGG_MONTHLY_ORDERS: Aggregation expressions and group_by columns not specified; retrieve full transformation definition before implementation."
+    ]
+  }
+}

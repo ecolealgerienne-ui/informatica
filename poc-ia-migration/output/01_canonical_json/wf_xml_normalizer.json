@@ -1,0 +1,985 @@
+{
+  "workflow_id": "wf_xml_normalizer",
+  "mapping_id": "m_xml_normalizer",
+  "parsed_at": "2026-06-28T13:02:38.875605+00:00",
+  "routing_decision": {
+    "target_platform": "databricks",
+    "rationale": "Score 16 (CRITICAL) from Normalizer unpivot and nested IIF/DECODE logic; requires Databricks for scalable handling of complex transformations.",
+    "auto_conversion_feasibility": "MEDIUM",
+    "human_intervention_required": true
+  },
+  "workflow_complexity": {
+    "total_score": 16,
+    "flag": "CRITICAL",
+    "estimated_migration_days": ">5",
+    "auto_conversion": false,
+    "score_breakdown": {
+      "transformations": {
+        "SQ_BUDGET_ANNUEL": 4,
+        "NRM_BUDGET_MENSUEL": 3,
+        "EXP_BUDGET_CALC": 7,
+        "FIL_MOIS_ACTIF": 1
+      },
+      "global_modifiers": {
+        "has_parameter_file": 1
+      }
+    }
+  },
+  "session": {
+    "parameter_file": "",
+    "variables": []
+  },
+  "sources": [],
+  "targets": [],
+  "transformations": [
+    {
+      "name": "SQ_BUDGET_ANNUEL",
+      "type": "Source Qualifier",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 4,
+      "score_breakdown": {
+        "base_score": 1,
+        "has_sql_override": 2,
+        "has_oracle_to_date": 1
+      },
+      "has_proprietary_functions": [
+        "TO_NUMBER",
+        "TO_CHAR",
+        "TO_DATE"
+      ],
+      "python_equivalents": {
+        "TO_DATE": "pd.to_datetime(str, format='%Y-%m-%d')",
+        "TO_CHAR": "date.dt.strftime(fmt)",
+        "TO_NUMBER": "pd.to_numeric(val).astype('Int64')"
+      },
+      "ports": [
+        {
+          "name": "BUDGET_ID",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DEPT_CODE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORIE",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ANNEE",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "4",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M01",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M02",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M03",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M04",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M05",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M06",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M07",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M08",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M09",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M10",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M11",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M12",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M01",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M02",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M03",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M04",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M05",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M06",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M07",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M08",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M09",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M10",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M11",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M12",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "STATUT_BUDGET",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "has_sql_override": true,
+      "sql_override": "SELECT BUDGET_ID, DEPT_CODE, CATEGORIE, ANNEE, BUDGET_M01, BUDGET_M02, BUDGET_M03, BUDGET_M04, BUDGET_M05, BUDGET_M06, BUDGET_M07, BUDGET_M08, BUDGET_M09, BUDGET_M10, BUDGET_M11, BUDGET_M12, REALISE_M01, REALISE_M02, REALISE_M03, REALISE_M04, REALISE_M05, REALISE_M06, REALISE_M07, REALISE_M08, REALISE_M09, REALISE_M10, REALISE_M11, REALISE_M12, STATUT_BUDGET FROM BUDGET_ANNUEL WHERE ANNEE = TO_NUMBER(TO_CHAR(TO_DATE('$$BATCH_DATE', 'YYYY-MM-DD'), 'YYYY'))",
+      "sql_dialect": "oracle",
+      "sql_analysis": {
+        "available": true,
+        "dialect": "oracle",
+        "sql_length": 459,
+        "tables_referenced": [
+          "BUDGET_ANNUEL"
+        ],
+        "oracle_functions": [
+          "TO_CHAR",
+          "TO_DATE"
+        ],
+        "complexity_hints": {
+          "has_analytical_functions": false,
+          "has_subquery": false,
+          "has_union": false,
+          "select_distinct": false,
+          "has_oracle_rownum": false,
+          "has_oracle_to_date": true
+        },
+        "spark_sql": "SELECT BUDGET_ID, DEPT_CODE, CATEGORIE, ANNEE, BUDGET_M01, BUDGET_M02, BUDGET_M03, BUDGET_M04, BUDGET_M05, BUDGET_M06, BUDGET_M07, BUDGET_M08, BUDGET_M09, BUDGET_M10, BUDGET_M11, BUDGET_M12, REALISE_M01, REALISE_M02, REALISE_M03, REALISE_M04, REALISE_M05, REALISE_M06, REALISE_M07, REALISE_M08, REALISE_M09, REALISE_M10, REALISE_M11, REALISE_M12, STATUT_BUDGET FROM BUDGET_ANNUEL WHERE ANNEE = CAST(DATE_FORMAT(TO_DATE('$$BATCH_DATE'), 'yyyy') AS DOUBLE)"
+      },
+      "notes": "SQL override uses Oracle date functions; extract year via pd.to_datetime() then .dt.year for WHERE clause filter."
+    },
+    {
+      "name": "NRM_BUDGET_MENSUEL",
+      "type": "Normalizer",
+      "complexity_flag": "LOW",
+      "complexity_score": 3,
+      "score_breakdown": {
+        "base_score": 3
+      },
+      "has_proprietary_functions": [],
+      "python_equivalents": {
+        "NORMALIZER_unpivot": "pd.melt(id_vars=[budget_id, dept_code, categorie, annee, statut_budget], value_vars=[BUDGET_M01-M12, REALISE_M01-M12], var_name='MOIS_FIELD', value_name='VALUE'); then assign GCID=(month_num 1-12)"
+      },
+      "ports": [
+        {
+          "name": "BUDGET_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DEPT_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORIE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ANNEE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "4",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "STATUT_BUDGET",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_M",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_M",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_ID_OUT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DEPT_CODE_OUT",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORIE_OUT",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ANNEE_OUT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "4",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "STATUT_BUDGET_OUT",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_MENSUEL",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_MENSUEL",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "GCID_MOIS",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "notes": "Unpivots 12 month columns into rows with GCID_MOIS index (1-12). Requires careful alignment: split variable names to extract month number and budget/realise type."
+    },
+    {
+      "name": "EXP_BUDGET_CALC",
+      "type": "Expression",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 7,
+      "score_breakdown": {
+        "base_score": 1,
+        "computed_fields_9_plus": 2,
+        "has_iif_nested": 2,
+        "has_decode_complex": 2
+      },
+      "has_proprietary_functions": [
+        "DECODE",
+        "IIF",
+        "LTRIM",
+        "RTRIM",
+        "LPAD",
+        "TO_CHAR",
+        "TO_DATE",
+        "SYSDATE"
+      ],
+      "python_equivalents": {
+        "DECODE": "Series.map(dict) with .fillna(default_val) for 12-month mapping",
+        "IIF_nested": "np.select([cond1, cond2, cond3, cond4], [val1, val2, val3, val4], default=val5)",
+        "LTRIM_RTRIM": "Series.str.strip()",
+        "LPAD": "Series.str.zfill(n)",
+        "SYSDATE": "pd.Timestamp.now()",
+        "TO_DATE": "pd.to_datetime(batch_date_param, format='%Y-%m-%d')"
+      },
+      "ports": [
+        {
+          "name": "BUDGET_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DEPT_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORIE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ANNEE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "4",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "STATUT_BUDGET",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_MENSUEL",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_MENSUEL",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "GCID_MOIS",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "MOIS_NUM",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "GCID_MOIS"
+        },
+        {
+          "name": "MOIS_LABEL",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "15",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "DECODE(GCID_MOIS, 1, 'Janvier', 2, 'Fevrier', 3, 'Mars', 4, 'Avril', 5, 'Mai', 6, 'Juin', 7, 'Juillet', 8, 'Aout', 9, 'Septembre', 10, 'Octobre', 11, 'Novembre', 12, 'Decembre', 'Inconnu')"
+        },
+        {
+          "name": "PERIODE_KEY",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "7",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "TO_CHAR(ANNEE) || '-' || LPAD(TO_CHAR(GCID_MOIS), 2, '0')"
+        },
+        {
+          "name": "ECART_ABSOLU",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": "REALISE_MENSUEL - BUDGET_MENSUEL"
+        },
+        {
+          "name": "TAUX_EXECUTION_PCT",
+          "datatype": "decimal",
+          "port_type": "OUTPUT",
+          "precision": "8",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": "IIF(BUDGET_MENSUEL > 0, REALISE_MENSUEL / BUDGET_MENSUEL * 100, 0)"
+        },
+        {
+          "name": "STATUT_EXECUTION",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "15",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "IIF(BUDGET_MENSUEL = 0, 'SANS_BUDGET', IIF(TAUX_EXECUTION_PCT >= 100, 'DEPASSE', IIF(TAUX_EXECUTION_PCT >= 90, 'ATTEINT', IIF(TAUX_EXECUTION_PCT >= 50, 'EN_COURS', 'FAIBLE'))))"
+        },
+        {
+          "name": "CATEGORIE_CLEAN",
+          "datatype": "string",
+          "port_type": "OUTPUT",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": "LTRIM(RTRIM(UPPER(CATEGORIE)))"
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": "SYSDATE"
+        },
+        {
+          "name": "BATCH_DATE_OUT",
+          "datatype": "date/time",
+          "port_type": "OUTPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": "TO_DATE($$BATCH_DATE, 'YYYY-MM-DD')"
+        }
+      ],
+      "computed_fields": [
+        {
+          "name": "MOIS_NUM",
+          "expression": "GCID_MOIS"
+        },
+        {
+          "name": "MOIS_LABEL",
+          "expression": "DECODE(GCID_MOIS, 1, 'Janvier', 2, 'Fevrier', 3, 'Mars', 4, 'Avril', 5, 'Mai', 6, 'Juin', 7, 'Juillet', 8, 'Aout', 9, 'Septembre', 10, 'Octobre', 11, 'Novembre', 12, 'Decembre', 'Inconnu')"
+        },
+        {
+          "name": "PERIODE_KEY",
+          "expression": "TO_CHAR(ANNEE) || '-' || LPAD(TO_CHAR(GCID_MOIS), 2, '0')"
+        },
+        {
+          "name": "ECART_ABSOLU",
+          "expression": "REALISE_MENSUEL - BUDGET_MENSUEL"
+        },
+        {
+          "name": "TAUX_EXECUTION_PCT",
+          "expression": "IIF(BUDGET_MENSUEL > 0, REALISE_MENSUEL / BUDGET_MENSUEL * 100, 0)"
+        },
+        {
+          "name": "STATUT_EXECUTION",
+          "expression": "IIF(BUDGET_MENSUEL = 0, 'SANS_BUDGET', IIF(TAUX_EXECUTION_PCT >= 100, 'DEPASSE', IIF(TAUX_EXECUTION_PCT >= 90, 'ATTEINT', IIF(TAUX_EXECUTION_PCT >= 50, 'EN_COURS', 'FAIBLE'))))"
+        },
+        {
+          "name": "CATEGORIE_CLEAN",
+          "expression": "LTRIM(RTRIM(UPPER(CATEGORIE)))"
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "expression": "SYSDATE"
+        },
+        {
+          "name": "BATCH_DATE_OUT",
+          "expression": "TO_DATE($$BATCH_DATE, 'YYYY-MM-DD')"
+        }
+      ],
+      "notes": "9 fields with 4-level nested IIF for STATUT_EXECUTION (order critical: SANS_BUDGET → DEPASSE → ATTEINT → EN_COURS → FAIBLE) and 12-value DECODE for month labels. Use np.select() not nested np.where()."
+    },
+    {
+      "name": "FIL_MOIS_ACTIF",
+      "type": "Filter",
+      "complexity_flag": "LOW",
+      "complexity_score": 1,
+      "score_breakdown": {
+        "base_score": 0,
+        "compound_condition": 1
+      },
+      "has_proprietary_functions": [
+        "ISNULL"
+      ],
+      "python_equivalents": {
+        "ISNULL": "Series.isna()",
+        "NOT (A AND B)": "~((A) & (B)) or De Morgan: (NOT A) OR (NOT B)"
+      },
+      "ports": [
+        {
+          "name": "BUDGET_MENSUEL",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_MENSUEL",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ],
+      "condition": "NOT (BUDGET_MENSUEL = 0 AND (ISNULL(REALISE_MENSUEL) OR REALISE_MENSUEL = 0))",
+      "notes": "Filters: BUDGET_MENSUEL != 0 OR (REALISE_MENSUEL not NULL AND REALISE_MENSUEL != 0). Keeps rows with budget or realization activity."
+    },
+    {
+      "name": "TGT_FACT_BUDGET_MENSUEL",
+      "type": "Target Definition",
+      "complexity_flag": "MEDIUM",
+      "complexity_score": 0,
+      "score_breakdown": {},
+      "has_proprietary_functions": [],
+      "python_equivalents": {},
+      "ports": [
+        {
+          "name": "BUDGET_ID",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DEPT_CODE",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "CATEGORIE_CLEAN",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "30",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ANNEE",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "4",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "MOIS_NUM",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "2",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "MOIS_LABEL",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "15",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "PERIODE_KEY",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "7",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BUDGET_MENSUEL",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "REALISE_MENSUEL",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "ECART_ABSOLU",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "14",
+          "scale": "2",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "TAUX_EXECUTION_PCT",
+          "datatype": "decimal",
+          "port_type": "INPUT",
+          "precision": "8",
+          "scale": "4",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "STATUT_EXECUTION",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "15",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "STATUT_BUDGET",
+          "datatype": "string",
+          "port_type": "INPUT",
+          "precision": "10",
+          "scale": "0",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "BATCH_DATE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        },
+        {
+          "name": "DW_LOAD_DATE",
+          "datatype": "date/time",
+          "port_type": "INPUT",
+          "precision": "29",
+          "scale": "9",
+          "nullable": "NULL",
+          "expression": ""
+        }
+      ]
+    }
+  ],
+  "data_flow": [
+    {
+      "from": null,
+      "to": null,
+      "fields": [
+        "ANNEE",
+        "ANNEE_OUT",
+        "BATCH_DATE_OUT",
+        "BUDGET_ID",
+        "BUDGET_ID_OUT",
+        "BUDGET_M01",
+        "BUDGET_M02",
+        "BUDGET_M03",
+        "BUDGET_M04",
+        "BUDGET_M05",
+        "BUDGET_M06",
+        "BUDGET_M07",
+        "BUDGET_M08",
+        "BUDGET_M09",
+        "BUDGET_M10",
+        "BUDGET_M11",
+        "BUDGET_M12",
+        "BUDGET_MENSUEL",
+        "CATEGORIE",
+        "CATEGORIE_CLEAN",
+        "CATEGORIE_OUT",
+        "DEPT_CODE",
+        "DEPT_CODE_OUT",
+        "DW_LOAD_DATE",
+        "ECART_ABSOLU",
+        "GCID_MOIS",
+        "MOIS_LABEL",
+        "MOIS_NUM",
+        "PERIODE_KEY",
+        "REALISE_M01",
+        "REALISE_M02",
+        "REALISE_M03",
+        "REALISE_M04",
+        "REALISE_M05",
+        "REALISE_M06",
+        "REALISE_M07",
+        "REALISE_M08",
+        "REALISE_M09",
+        "REALISE_M10",
+        "REALISE_M11",
+        "REALISE_M12",
+        "REALISE_MENSUEL",
+        "STATUT_BUDGET",
+        "STATUT_BUDGET_OUT",
+        "STATUT_EXECUTION",
+        "TAUX_EXECUTION_PCT"
+      ]
+    }
+  ],
+  "flags": {
+    "has_java_transformation": false,
+    "has_dynamic_lookup": false,
+    "has_custom_function": false,
+    "has_parameter_file": true,
+    "has_sql_override": true,
+    "oracle_proprietary_functions": [
+      "TO_NUMBER",
+      "TO_CHAR",
+      "TO_DATE",
+      "DECODE",
+      "IIF",
+      "LTRIM",
+      "RTRIM",
+      "LPAD",
+      "SYSDATE",
+      "ISNULL"
+    ],
+    "requires_human_review": [
+      "NRM_BUDGET_MENSUEL: Verify unpivot preserves 12-month column pairs and GCID assignment (1-12)",
+      "EXP_BUDGET_CALC STATUT_EXECUTION: 4-level nested IIF must map precisely via np.select() order; test boundary cases (0, 50, 90, 100)",
+      "EXP_BUDGET_CALC MOIS_LABEL: 12-value DECODE with French month names; confirm encoding (UTF-8) in Databricks",
+      "FIL_MOIS_ACTIF: Null-safety logic for REALISE_MENSUEL; test empty budgets",
+      "Session parameter: $$BATCH_DATE injection at runtime; confirm parameter format and timezone handling"
+    ]
+  }
+}

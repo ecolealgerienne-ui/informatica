@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wf_CLIENTS_DIM — Phase 1</title>
+<style>
+
+:root {
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-500: #6b7280;
+  --gray-700: #374151;
+  --gray-900: #111827;
+  --blue-50: #eff6ff;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font); background: var(--gray-50); color: var(--gray-900); font-size: 14px; line-height: 1.6; }
+h1 { font-size: 1.75rem; font-weight: 700; }
+h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; }
+h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
+.container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+.header { background: #1e293b; color: white; padding: 1.5rem 0; margin-bottom: 2rem; }
+.header .container { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+.header-meta { font-size: 0.8rem; opacity: 0.7; margin-top: 0.25rem; }
+.badge {
+  display: inline-block; padding: 0.2rem 0.6rem; border-radius: 9999px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.card { background: white; border-radius: 0.75rem; border: 1px solid var(--gray-200); padding: 1.5rem; margin-bottom: 1.5rem; }
+.card-title { font-size: 0.75rem; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
+.card-value { font-size: 2rem; font-weight: 700; line-height: 1.2; }
+.card-sub { font-size: 0.8rem; color: var(--gray-500); margin-top: 0.25rem; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+@media (max-width: 900px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .grid-4 { grid-template-columns: 1fr 1fr; } .grid-2 { grid-template-columns: 1fr; } }
+table { width: 100%; border-collapse: collapse; }
+th { background: var(--gray-50); padding: 0.6rem 0.75rem; text-align: left; font-size: 0.72rem; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--gray-200); }
+td { padding: 0.75rem; border-bottom: 1px solid var(--gray-100); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--gray-50); }
+a { color: var(--blue-600); text-decoration: none; font-weight: 500; }
+a:hover { color: var(--blue-700); text-decoration: underline; }
+.btn-back { display: inline-flex; align-items: center; gap: 0.4rem; background: white; border: 1px solid var(--gray-200); border-radius: 0.5rem; padding: 0.5rem 1rem; font-size: 0.85rem; color: var(--gray-700); font-weight: 500; margin-bottom: 1.5rem; }
+.btn-back:hover { background: var(--gray-50); text-decoration: none; }
+.section-label { font-size: 0.7rem; font-weight: 700; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.75rem; }
+.pill { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; border-radius: 0.35rem; font-size: 0.75rem; font-weight: 500; }
+.info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+@media (max-width: 700px) { .info-grid { grid-template-columns: 1fr 1fr; } }
+.divider { border: none; border-top: 1px solid var(--gray-200); margin: 1.5rem 0; }
+.tag { display: inline-block; background: var(--gray-100); color: var(--gray-700); border-radius: 0.25rem; padding: 0.1rem 0.4rem; font-size: 0.72rem; font-family: monospace; margin: 0.1rem; }
+.progress-bar { height: 8px; border-radius: 4px; background: var(--gray-200); overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+.alert { padding: 0.75rem 1rem; border-radius: 0.5rem; border-left: 4px solid; margin-bottom: 1rem; font-size: 0.85rem; }
+.alert-warning { background: #fffbeb; border-color: #f59e0b; color: #78350f; }
+.alert-info { background: var(--blue-50); border-color: var(--blue-600); color: #1e40af; }
+.footer { text-align: center; font-size: 0.75rem; color: var(--gray-500); padding: 2rem 0; border-top: 1px solid var(--gray-200); margin-top: 2rem; }
+
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="container">
+    <div>
+      <div style="font-size:0.8rem;color:#94a3b8;margin-bottom:0.3rem">Migration Informatica PowerCenter — ACME Corp · Fiche workflow</div>
+      <div style="font-size:1.4rem;font-weight:700">Clients Dim</div>
+      <div style="font-size:0.8rem;color:#94a3b8;margin-top:0.2rem;font-family:monospace">wf_CLIENTS_DIM</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:0.75rem;color:#94a3b8">Analysé le 2026-06-28</div>
+      <div style="margin-top:0.5rem"><span class="badge" style="background:#fee2e2;color:#7f1d1d;border:1px solid #ef4444">HIGH</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <a href="index.html" class="btn-back">← Retour au dashboard</a>
+
+  <div class="alert alert-info">
+              <strong>Supervision recommandée.</strong> La génération sera automatique mais une relecture experte est conseillée.
+            </div>
+
+  <!-- Score banner -->
+  <div class="card" style="background:#fee2e2;border-color:#ef4444;margin-bottom:1.5rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+      <div>
+        <div style="font-size:2.5rem;font-weight:800;color:#7f1d1d;line-height:1">10</div>
+        <div style="font-size:0.8rem;color:#7f1d1d;opacity:0.8">Score de complexité total</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:1.4rem;font-weight:700;color:#7f1d1d">3-5 j</div>
+        <div style="font-size:0.75rem;color:#7f1d1d;opacity:0.8">Estimation migration</div>
+      </div>
+      <div style="text-align:center">
+        <div style="margin-bottom:0.3rem"><span class="pill" style="background:#8b5cf620;color:#8b5cf6">PySpark</span></div>
+        <div style="font-size:0.75rem;color:#6b7280">Cible recommandée</div>
+      </div>
+      <div style="text-align:center">
+        <div style="margin-bottom:0.3rem"><span class="pill" style="background:#f59e0b20;color:#f59e0b">Supervision recommandée</span></div>
+        <div style="font-size:0.75rem;color:#6b7280">Faisabilité IA</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:1.1rem;font-weight:700;color:#7f1d1d">10 k€ – 20 k€</div>
+        <div style="font-size:0.75rem;color:#7f1d1d;opacity:0.8">Budget estimé avec IA</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rationale -->
+  <div class="card">
+    <h2>Analyse de routage</h2>
+    <p style="font-size:0.9rem;color:#374151;margin-bottom:1rem">Score 10 exceeds Python threshold (8); PySpark required for ROWNUM/TO_DATE SQL patterns and vectorized DATEDIFF age calculations across distributed data.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+      <span style="font-size:0.75rem;color:#6b7280;font-weight:600">MAPPING :</span>
+      <span class="tag">MP_CLIENTS_DIM</span>
+      <span style="font-size:0.75rem;color:#6b7280;font-weight:600;margin-left:0.5rem">FLAGS :</span>
+      <span class="pill" style="background:#6b728020;color:#6b7280;margin:0.2rem">Parameter File</span><span class="pill" style="background:#6b728020;color:#6b7280;margin:0.2rem">SQL Override</span>
+    </div>
+    <div style="margin-top:0.75rem"><span style="font-size:0.75rem;color:#6b7280;font-weight:600">FONCTIONS ORACLE :</span> <span class="tag">ROWNUM</span> <span class="tag">TO_DATE</span> <span class="tag">DATEDIFF</span> <span class="tag">SYSDATE</span> <span class="tag">LTRIM</span> <span class="tag">RTRIM</span></div>
+    <div style="margin-top:0.75rem"><span style="font-size:0.75rem;color:#b91c1c;font-weight:600">REVUE HUMAINE :</span> <span class="tag" style="background:#fee2e2;color:#b91c1c">EXP_TRANSFORM: DATEDIFF(SYSDATE, DATE_NAISSANCE, 'YY') age logic requires month/day boundary handling</span> <span class="tag" style="background:#fee2e2;color:#b91c1c">SQ_CLIENTS: Verify ROWNUM semantics in Spark/pandas context (order-dependent)</span> <span class="tag" style="background:#fee2e2;color:#b91c1c">Parameter injection: $$BATCH_DATE must be parameterized in PySpark job submission</span></div>
+  </div>
+
+  <!-- Sources & Targets -->
+  <div class="grid-2">
+    <div class="card">
+      <h2>Sources (2)</h2>
+      
+        <div style="border:1px solid #e5e7eb;border-radius:0.5rem;padding:0.75rem;margin-bottom:0.5rem">
+          <div style="font-weight:600;font-size:0.85rem">CLIENTS</div>
+          <div style="font-size:0.75rem;color:#6b7280">Oracle · PROD_DB · 10 champs</div>
+        </div>
+        <div style="border:1px solid #e5e7eb;border-radius:0.5rem;padding:0.75rem;margin-bottom:0.5rem">
+          <div style="font-weight:600;font-size:0.85rem">REF_STATUT</div>
+          <div style="font-size:0.75rem;color:#6b7280">Oracle · PROD_DB · 3 champs</div>
+        </div>
+    </div>
+    <div class="card">
+      <h2>Cibles (1)</h2>
+      
+        <div style="border:1px solid #e5e7eb;border-radius:0.5rem;padding:0.75rem;margin-bottom:0.5rem">
+          <div style="font-weight:600;font-size:0.85rem">DIM_CLIENTS</div>
+          <div style="font-size:0.75rem;color:#6b7280">Oracle · DW_DB · 12 champs</div>
+        </div>
+    </div>
+  </div>
+
+  <!-- Data flow -->
+  <div class="card">
+    <h2>Data flow</h2>
+    <div style="overflow-x:auto;padding:0.5rem 0"><svg width="1350" height="112" viewBox="0 0 1350 112" style="max-width:100%;overflow-x:auto">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#9ca3af"/>
+    </marker>
+  </defs>
+  <path d="M560,46 C575.0,46 575.0,46 590,46" fill="none" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow)"/><path d="M560,46 C670.0,46 670.0,46 780,46" fill="none" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow)"/><path d="M750,46 C765.0,46 765.0,46 780,46" fill="none" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow)"/><path d="M940,46 C955.0,46 955.0,46 970,46" fill="none" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <rect x="20" y="28" width="160" height="36" rx="6" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/><text x="100" y="42" text-anchor="middle" font-size="10" font-weight="600" fill="#1e40af">CLIENTS</text><text x="100" y="54" text-anchor="middle" font-size="8" fill="#6b7280"></text><rect x="210" y="28" width="160" height="36" rx="6" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/><text x="290" y="42" text-anchor="middle" font-size="10" font-weight="600" fill="#1e40af">REF_STATUT</text><text x="290" y="54" text-anchor="middle" font-size="8" fill="#6b7280"></text><rect x="400" y="28" width="160" height="36" rx="6" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.5"/><text x="480" y="42" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">SQ_CLIENTS</text><text x="480" y="54" text-anchor="middle" font-size="8" fill="#6b7280">Source Qualifier</text><rect x="590" y="28" width="160" height="36" rx="6" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.5"/><text x="670" y="42" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">LKP_STATUT</text><text x="670" y="54" text-anchor="middle" font-size="8" fill="#6b7280">Lookup Procedure</text><rect x="780" y="28" width="160" height="36" rx="6" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.5"/><text x="860" y="42" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">EXP_TRANSFORM</text><text x="860" y="54" text-anchor="middle" font-size="8" fill="#6b7280">Expression</text><rect x="970" y="28" width="160" height="36" rx="6" fill="#f3f4f6" stroke="#6b7280" stroke-width="1.5"/><text x="1050" y="42" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">FIL_ACTIVE</text><text x="1050" y="54" text-anchor="middle" font-size="8" fill="#6b7280">Filter</text><rect x="1160" y="28" width="160" height="36" rx="6" fill="#d1fae5" stroke="#10b981" stroke-width="1.5"/><text x="1240" y="42" text-anchor="middle" font-size="10" font-weight="600" fill="#065f46">DIM_CLIENTS</text><text x="1240" y="54" text-anchor="middle" font-size="8" fill="#6b7280"></text>
+</svg></div>
+    <div style="margin-top:0.75rem;display:flex;gap:1.5rem;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:0.4rem"><div style="width:12px;height:12px;background:#dbeafe;border:1.5px solid #2563eb;border-radius:2px"></div><span style="font-size:0.75rem;color:#6b7280">Source</span></div>
+      <div style="display:flex;align-items:center;gap:0.4rem"><div style="width:12px;height:12px;background:#f3f4f6;border:1.5px solid #6b7280;border-radius:2px"></div><span style="font-size:0.75rem;color:#6b7280">Transformation</span></div>
+      <div style="display:flex;align-items:center;gap:0.4rem"><div style="width:12px;height:12px;background:#d1fae5;border:1.5px solid #10b981;border-radius:2px"></div><span style="font-size:0.75rem;color:#6b7280">Cible</span></div>
+    </div>
+  </div>
+
+  <!-- Transformations table -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="padding:1.25rem 1.5rem 0.75rem">
+      <h2 style="margin-bottom:0">Transformations Informatica (4)</h2>
+    </div>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>Nom</th><th>Type Informatica</th><th>Complexité</th>
+        <th>Fonctions propriétaires</th><th>Équivalents Python</th><th>Notes</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="tag" style="font-weight:600">SQ_CLIENTS</span></td>
+          <td style="color:#6b7280;font-size:0.8rem">Source Qualifier</td>
+          <td><span class="badge" style="background:#fef3c7;color:#78350f;border:1px solid #f59e0b">MEDIUM</span> <span style="font-size:0.8rem;color:#374151;margin-left:0.25rem">5</span></td>
+          <td><span class="tag">ROWNUM</span> <span class="tag">TO_DATE</span></td>
+          <td style="font-size:0.75rem"><span class="tag" style="background:#eff6ff;color:#1d4ed8">ROWNUM <= 1000000→df.limit(1000000)  or  df.head(1000000)</span> <span class="tag" style="background:#eff6ff;color:#1d4ed8">TO_DATE→pd.to_datetime(str, format='%Y-%m-%d')</span></td>
+          <td style="font-size:0.75rem;color:#6b7280">SQL override with Oracle ROWNUM and TO_DATE filtering; translate to Spark SQL .limit() or pandas head().</td>
+        </tr>
+        <tr>
+          <td><span class="tag" style="font-weight:600">LKP_STATUT</span></td>
+          <td style="color:#6b7280;font-size:0.8rem">Lookup Procedure</td>
+          <td><span class="badge" style="background:#d1fae5;color:#065f46;border:1px solid #10b981">LOW</span> <span style="font-size:0.8rem;color:#374151;margin-left:0.25rem">1</span></td>
+          <td><span style="color:#9ca3af;font-size:0.75rem">—</span></td>
+          <td style="font-size:0.75rem"><span class="tag" style="background:#eff6ff;color:#1d4ed8">CONNECTED_LOOKUP→df_clients.merge(ref_statut, left_on='CODE', right_on='CODE', how='left')</span></td>
+          <td style="font-size:0.75rem;color:#6b7280">Simple connected lookup on CODE equality; standard pandas/Spark merge pattern.</td>
+        </tr>
+        <tr>
+          <td><span class="tag" style="font-weight:600">EXP_TRANSFORM</span></td>
+          <td style="color:#6b7280;font-size:0.8rem">Expression</td>
+          <td><span class="badge" style="background:#fef3c7;color:#78350f;border:1px solid #f59e0b">MEDIUM</span> <span style="font-size:0.8rem;color:#374151;margin-left:0.25rem">3</span></td>
+          <td><span class="tag">LTRIM</span> <span class="tag">RTRIM</span> <span class="tag">UPPER</span> <span class="tag">LOWER</span> <span class="tag">DATEDIFF</span> <span class="tag">SYSDATE</span> <span class="tag">TO_DATE</span></td>
+          <td style="font-size:0.75rem"><span class="tag" style="background:#eff6ff;color:#1d4ed8">LTRIM(RTRIM(x))→x.str.strip()</span> <span class="tag" style="background:#eff6ff;color:#1d4ed8">UPPER→x.str.upper()</span> <span class="tag" style="background:#eff6ff;color:#1d4ed8">LOWER→x.str.lower()</span> <span class="tag" style="background:#eff6ff;color:#1d4ed8">DATEDIFF(SYSDATE, DATE_NAISSANCE, 'YY')→pd.Timestamp.now().year - DATE_NAISSANCE.dt.year - ((pd.Timestamp.now().month, pd.Timestamp.now().day) < (DATE_NAISSANCE.dt.month, DATE_NAISSANCE.dt.day)).astype(int)</span></td>
+          <td style="font-size:0.75rem;color:#6b7280">6 computed fields (moderate volume); DATEDIFF age calculation requires explicit month/day boundary check, not simple year subtraction.</td>
+        </tr>
+        <tr>
+          <td><span class="tag" style="font-weight:600">FIL_ACTIVE</span></td>
+          <td style="color:#6b7280;font-size:0.8rem">Filter</td>
+          <td><span class="badge" style="background:#d1fae5;color:#065f46;border:1px solid #10b981">LOW</span> <span style="font-size:0.8rem;color:#374151;margin-left:0.25rem">0</span></td>
+          <td><span style="color:#9ca3af;font-size:0.75rem">—</span></td>
+          <td style="font-size:0.75rem"><span class="tag" style="background:#eff6ff;color:#1d4ed8">FILTER→df[df['STATUT_CODE'] != 'I']</span></td>
+          <td style="font-size:0.75rem;color:#6b7280">Simple inequality filter; vectorized boolean mask.</td>
+        </tr></tbody>
+    </table></div>
+  </div>
+
+  <!-- Score breakdown -->
+  <div class="grid-2">
+    <div class="card">
+      <h2>Décomposition du score</h2>
+      <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Élément</th><th>Type</th><th style="text-align:right">Score</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="tag">SQ_CLIENTS</span></td>
+          <td style="color:#6b7280;font-size:0.8rem">Transformation</td>
+          <td style="text-align:right;font-weight:700;color:#ef4444">5</td>
+        </tr>
+        <tr>
+          <td><span class="tag">EXP_TRANSFORM</span></td>
+          <td style="color:#6b7280;font-size:0.8rem">Transformation</td>
+          <td style="text-align:right;font-weight:700;color:#f59e0b">3</td>
+        </tr>
+        <tr>
+          <td><span class="tag">LKP_STATUT</span></td>
+          <td style="color:#6b7280;font-size:0.8rem">Transformation</td>
+          <td style="text-align:right;font-weight:700;color:#374151">1</td>
+        </tr>
+        <tr>
+          <td><span class="tag">FIL_ACTIVE</span></td>
+          <td style="color:#6b7280;font-size:0.8rem">Transformation</td>
+          <td style="text-align:right;font-weight:700;color:#374151">0</td>
+        </tr>
+        <tr>
+          <td><span class="tag">has parameter file</span></td>
+          <td style="color:#6b7280;font-size:0.8rem">Modificateur global</td>
+          <td style="text-align:right;font-weight:700;color:#6b7280">+1</td>
+        </tr></tbody>
+    </table></div>
+      <hr class="divider">
+      <div style="display:flex;justify-content:space-between;font-weight:700">
+        <span>Total</span>
+        <span style="color:#ef4444">10</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Session &amp; paramètres</h2>
+      <div style="margin-bottom:0.75rem"><div class="section-label">Fichier de paramètres</div><span class="tag">clients_dim.par</span></div>
+      <div><div class="section-label">Variables de session</div><span class="tag">$$BATCH_DATE=2026-01-01</span> </div>
+      
+      <hr class="divider">
+      <div>
+        <div class="section-label">Budget estimé avec IA</div>
+        <div style="font-size:1.5rem;font-weight:700;color:#2563eb">10 k€ – 20 k€</div>
+        <div style="font-size:0.75rem;color:#6b7280;margin-top:0.25rem">Taux d'automatisation estimé : 60%</div>
+      </div>
+      <hr class="divider">
+      <div>
+        <div class="section-label">Étapes Phase 2 recommandées</div>
+        <ul style="font-size:0.8rem;color:#374151;padding-left:1.2rem;margin-top:0.5rem">
+          <li>Génération du code PySpark</li>
+          <li>Correction sémantique LLM (supervision experte)</li>
+          <li>Documentation métier bilingue</li>
+          <li>Recette data diff vs golden dataset</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <div>wf_CLIENTS_DIM · Migration Informatica PowerCenter — ACME Corp · Rapport Phase 1</div>
+</div>
+
+</body>
+</html>
