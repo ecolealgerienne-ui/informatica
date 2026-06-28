@@ -66,15 +66,16 @@ def main():
     print("\n" + "=" * 80)
     print("ANALYZER LAKEBRIDGE vs SCORES NOTRE PIPELINE")
     print("=" * 80)
-    print(f"\n{'Workflow':<25} {'Complexité':<10} {'Score/Nôtre':<12} "
-          f"{'Score/LB':<10} {'LLM Reco':<10} {'Notre résultat'}")
+    print(f"\n{'Workflow':<25} {'Notre Cxité':<12} {'Score':<7} "
+          f"{'LB Niveau':<10} {'LLM Reco':<10} {'Résultat'}")
     print("-" * 80)
 
     rows = []
     for wf_name, meta in OUR_SCORES.items():
-        # Cherche le workflow dans le rapport Lakebridge (matching partiel)
+        # Cherche le workflow dans le rapport Lakebridge (matching partiel, insensible à la casse)
+        wf_lower = wf_name.lower()
         lb_item = next(
-            (v for k, v in lb_by_name.items() if wf_name in k or k in wf_name),
+            (v for k, v in lb_by_name.items() if wf_lower in k.lower() or k.lower() in wf_lower),
             {}
         )
         lb_score = lb_item.get("complexityScore", lb_item.get("complexity_score", "N/A"))
@@ -82,8 +83,8 @@ def main():
 
         model = recommended_model(meta["score"])
 
-        print(f"{wf_name:<25} {meta['complexity']:<10} {meta['score']:<12} "
-              f"{str(lb_score):<10} {model:<10} {meta['our_result']}")
+        print(f"{wf_name:<25} {meta['complexity']:<12} {meta['score']:<7} "
+              f"{str(lb_complexity):<10} {model:<10} {meta['our_result']}")
 
         rows.append({
             "workflow":        wf_name,
