@@ -40,20 +40,6 @@ FEASIBILITY_LABELS = {
     "LOW":    ("Intervention experte", "#ef4444"),
 }
 
-BUDGET_RANGES = {
-    "LOW":      (5_000,  10_000),
-    "MEDIUM":   (10_000, 25_000),
-    "HIGH":     (25_000, 50_000),
-    "CRITICAL": (50_000, 100_000),
-}
-
-AUTOMATION_RATE = {
-    "LOW":      0.90,
-    "MEDIUM":   0.75,
-    "HIGH":     0.60,
-    "CRITICAL": 0.40,
-}
-
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
@@ -67,20 +53,10 @@ def load_canonical_jsons(input_dir: Path) -> list[dict]:
     return workflows
 
 
-def compute_budget_estimate(flag: str) -> tuple[int, int]:
-    lo, hi = BUDGET_RANGES.get(flag, (0, 0))
-    rate = AUTOMATION_RATE.get(flag, 0.5)
-    return int(lo * (1 - rate)), int(hi * (1 - rate))
-
-
 def summarize_project(workflows: list[dict]) -> dict:
     flag_counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
     platform_counts = {}
     total_score = 0
-    total_budget_lo = 0
-    total_budget_hi = 0
-    manual_lo = 0
-    manual_hi = 0
     total_transfo = 0
 
     for wf in workflows:
@@ -92,31 +68,15 @@ def summarize_project(workflows: list[dict]) -> dict:
         platform = wf.get("routing_decision", {}).get("target_platform", "python")
         platform_counts[platform] = platform_counts.get(platform, 0) + 1
 
-        bl, bh = compute_budget_estimate(flag)
-        total_budget_lo += bl
-        total_budget_hi += bh
-
-        ml, mh = BUDGET_RANGES.get(flag, (0, 0))
-        manual_lo += ml
-        manual_hi += mh
-
         total_transfo += len(wf.get("transformations", []))
 
     avg_score = round(total_score / len(workflows), 1) if workflows else 0
-    savings_lo = manual_lo - total_budget_hi
-    savings_hi = manual_hi - total_budget_lo
 
     return {
         "count": len(workflows),
         "flag_counts": flag_counts,
         "platform_counts": platform_counts,
         "avg_score": avg_score,
-        "total_budget_lo": total_budget_lo,
-        "total_budget_hi": total_budget_hi,
-        "manual_lo": manual_lo,
-        "manual_hi": manual_hi,
-        "savings_lo": max(0, savings_lo),
-        "savings_hi": max(0, savings_hi),
         "total_transformations": total_transfo,
     }
 
@@ -181,6 +141,55 @@ a:hover { color: var(--blue-700); text-decoration: underline; }
 .alert-warning { background: #fffbeb; border-color: #f59e0b; color: #78350f; }
 .alert-info { background: var(--blue-50); border-color: var(--blue-600); color: #1e40af; }
 .footer { text-align: center; font-size: 0.75rem; color: var(--gray-500); padding: 2rem 0; border-top: 1px solid var(--gray-200); margin-top: 2rem; }
+
+/* Data flow modal */
+.df-container { position: relative; overflow-x: auto; padding: 0.5rem 0; cursor: pointer; }
+.df-expand-btn {
+  position: absolute; top: 0.5rem; right: 0.5rem; z-index: 2;
+  background: white; border: 1px solid var(--gray-200); border-radius: 0.4rem;
+  padding: 0.3rem 0.7rem; font-size: 0.75rem; font-weight: 600; color: var(--gray-700);
+  cursor: pointer; display: flex; align-items: center; gap: 0.3rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.df-expand-btn:hover { background: var(--gray-50); }
+.df-modal-overlay {
+  display: none; position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.75); align-items: center; justify-content: center;
+}
+.df-modal-overlay.open { display: flex; }
+.df-modal-inner {
+  position: relative; background: white; border-radius: 0.75rem;
+  width: 95vw; height: 90vh; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.df-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1rem; border-bottom: 1px solid var(--gray-200);
+  flex-shrink: 0;
+}
+.df-modal-title { font-weight: 600; font-size: 0.9rem; color: var(--gray-700); }
+.df-modal-controls { display: flex; align-items: center; gap: 0.5rem; }
+.df-btn {
+  background: var(--gray-100); border: 1px solid var(--gray-200); border-radius: 0.35rem;
+  padding: 0.3rem 0.65rem; font-size: 0.8rem; font-weight: 600; color: var(--gray-700);
+  cursor: pointer; line-height: 1;
+}
+.df-btn:hover { background: var(--gray-200); }
+.df-close-btn {
+  background: none; border: none; cursor: pointer; font-size: 1.2rem;
+  color: var(--gray-500); padding: 0.2rem 0.4rem; border-radius: 0.25rem;
+}
+.df-close-btn:hover { color: var(--gray-900); background: var(--gray-100); }
+.df-modal-canvas {
+  flex: 1; overflow: hidden; position: relative; cursor: grab;
+}
+.df-modal-canvas.grabbing { cursor: grabbing; }
+.df-modal-svg-wrap {
+  position: absolute; top: 0; left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.df-hint { font-size: 0.7rem; color: var(--gray-500); padding: 0.25rem 1rem; border-top: 1px solid var(--gray-100); text-align: center; flex-shrink: 0; }
 """
 
 # ---------------------------------------------------------------------------
@@ -224,31 +233,6 @@ def _donut_svg(flag_counts: dict, size: int = 140) -> str:
 </svg>"""
 
 
-def _bar_chart_svg(flag_counts: dict, width: int = 280, height: int = 120) -> str:
-    colors = {"LOW": "#10b981", "MEDIUM": "#f59e0b", "HIGH": "#ef4444", "CRITICAL": "#a21caf"}
-    flags = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
-    max_val = max(flag_counts.values()) if flag_counts else 1
-    bar_w = 40
-    gap = (width - len(flags) * bar_w) // (len(flags) + 1)
-    bars = []
-    for i, flag in enumerate(flags):
-        count = flag_counts.get(flag, 0)
-        bh = int((count / max_val) * (height - 30)) if max_val else 0
-        x = gap + i * (bar_w + gap)
-        y = height - 20 - bh
-        bars.append(f'<rect x="{x}" y="{y}" width="{bar_w}" height="{bh}" fill="{colors[flag]}" rx="4"/>')
-        bars.append(f'<text x="{x + bar_w//2}" y="{y - 5}" text-anchor="middle" font-size="12" font-weight="700" fill="{colors[flag]}">{count}</text>')
-        bars.append(f'<text x="{x + bar_w//2}" y="{height - 4}" text-anchor="middle" font-size="9" fill="#6b7280">{flag}</text>')
-
-    return f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}">{chr(10).join(bars)}</svg>'
-
-
-def _fmt_eur(n: int) -> str:
-    if n >= 1_000_000:
-        return f"{n/1_000_000:.1f} M€"
-    return f"{n//1_000} k€"
-
-
 def _flag_badge(flag: str) -> str:
     c = FLAG_COLORS.get(flag, FLAG_COLORS["MEDIUM"])
     return (f'<span class="badge" style="background:{c["bg"]};color:{c["text"]};'
@@ -271,13 +255,11 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
     summary = summarize_project(workflows)
     now = datetime.now(timezone.utc).strftime("%d/%m/%Y à %H:%M UTC")
 
-    # Stat cards
+    # Stat cards (2 KPIs: workflows count + average score)
     stat_cards = []
     kpis = [
         ("Workflows analysés", str(summary["count"]), f"{summary['total_transformations']} transformations"),
         ("Score moyen", str(summary["avg_score"]), "complexité (max observé: 35)"),
-        ("Budget estimé (avec IA)", f"{_fmt_eur(summary['total_budget_lo'])} – {_fmt_eur(summary['total_budget_hi'])}", "vs " + f"{_fmt_eur(summary['manual_lo'])} – {_fmt_eur(summary['manual_hi'])} en manuel"),
-        ("Économie estimée", f"{_fmt_eur(summary['savings_lo'])} – {_fmt_eur(summary['savings_hi'])}", "réduction effort 40–90% selon complexité"),
     ]
     for title, value, sub in kpis:
         stat_cards.append(f"""
@@ -300,11 +282,7 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
         feasibility = r.get("auto_conversion_feasibility", "MEDIUM")
         n_transfo = len(wf.get("transformations", []))
         sources = ", ".join(s.get("name", "") for s in wf.get("sources", []))
-        targets = ", ".join(t.get("name", "") for t in wf.get("targets", []))
         wf_id = wf.get("workflow_id", fname)
-
-        budget_lo, budget_hi = compute_budget_estimate(flag)
-        budget_str = f"{_fmt_eur(budget_lo)} – {_fmt_eur(budget_hi)}"
 
         table_rows.append(f"""
         <tr>
@@ -314,7 +292,6 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
           <td>{_platform_badge(platform)}</td>
           <td>{days} j</td>
           <td>{_feasibility_badge(feasibility)}</td>
-          <td style="font-size:0.8rem;color:#374151">{budget_str}</td>
           <td style="font-size:0.8rem;color:#6b7280">{n_transfo}</td>
           <td style="font-size:0.75rem;color:#6b7280;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{sources}</td>
         </tr>""")
@@ -360,6 +337,8 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
 <style>
 {COMMON_CSS}
 .hero-title {{ font-size:1.5rem;font-weight:700;line-height:1.3 }}
+.grid-2-kpi {{ display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;margin-bottom:1.5rem }}
+@media (max-width:600px) {{ .grid-2-kpi {{ grid-template-columns:1fr }} }}
 </style>
 </head>
 <body>
@@ -386,7 +365,7 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
   </div>
 
   <!-- KPI cards -->
-  <div class="grid-4">
+  <div class="grid-2-kpi">
     {''.join(stat_cards)}
   </div>
 
@@ -424,7 +403,6 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
           <th>Cible recommandée</th>
           <th>Estimation</th>
           <th>Faisabilité IA</th>
-          <th>Budget estimé (avec IA)</th>
           <th>Transfo.</th>
           <th>Source principale</th>
         </tr>
@@ -433,28 +411,6 @@ def generate_index(workflows: list[dict], project_name: str, output_dir: Path) -
         {''.join(table_rows)}
       </tbody>
     </table>
-    </div>
-  </div>
-
-  <!-- Budget synthesis -->
-  <div class="card">
-    <h2>Synthèse budgétaire</h2>
-    <div class="grid-2" style="margin-bottom:0">
-      <div>
-        <div class="section-label">Effort manuel de référence</div>
-        <div style="font-size:1.5rem;font-weight:700;color:#374151">{_fmt_eur(summary['manual_lo'])} – {_fmt_eur(summary['manual_hi'])}</div>
-        <div style="font-size:0.8rem;color:#6b7280;margin-top:0.25rem">Basé sur les tarifs marché (5 k€–100 k€ / workflow selon complexité)</div>
-      </div>
-      <div>
-        <div class="section-label">Avec la plateforme IA</div>
-        <div style="font-size:1.5rem;font-weight:700;color:#2563eb">{_fmt_eur(summary['total_budget_lo'])} – {_fmt_eur(summary['total_budget_hi'])}</div>
-        <div style="font-size:0.8rem;color:#6b7280;margin-top:0.25rem">Réduction estimée : 40–90% selon le niveau de complexité</div>
-      </div>
-    </div>
-    <hr class="divider">
-    <div class="alert alert-warning" style="margin-bottom:0">
-      <strong>Note :</strong> Ces estimations sont indicatives et basées sur les données du Canonical JSON.
-      Un atelier de qualification (Phase 1 étendue) permet de les affiner avec vos données réelles et vos golden datasets.
     </div>
   </div>
 
@@ -583,7 +539,7 @@ def _data_flow_svg(data_flow: list[dict], transformations: list[dict], sources: 
                 f'marker-end="url(#arrow)"/>'
             )
 
-    svg = f"""<svg width="{total_w}" height="{total_h}" viewBox="0 0 {total_w} {total_h}" style="max-width:100%;overflow-x:auto">
+    svg = f"""<svg id="df-svg" width="{total_w}" height="{total_h}" viewBox="0 0 {total_w} {total_h}">
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
       <path d="M0,0 L0,6 L8,3 z" fill="#9ca3af"/>
@@ -634,6 +590,125 @@ def _transfo_table(transformations: list[dict]) -> str:
     </table>"""
 
 
+# JS for modal zoom/pan — embedded once per workflow page
+DATA_FLOW_MODAL_JS = """
+<script>
+(function() {
+  var overlay = document.getElementById('df-modal-overlay');
+  if (!overlay) return;
+  var canvas = document.getElementById('df-modal-canvas');
+  var wrap   = document.getElementById('df-svg-wrap');
+  var srcSvg = document.getElementById('df-svg');
+  if (!srcSvg || !wrap) return;
+
+  // Clone SVG into modal
+  var clone = srcSvg.cloneNode(true);
+  clone.removeAttribute('id');
+  clone.style.display = 'block';
+  clone.style.maxWidth = 'none';
+  wrap.appendChild(clone);
+
+  var scale = 1, tx = 0, ty = 0;
+  var dragging = false, startX, startY, startTx, startTy;
+
+  function applyTransform() {
+    wrap.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+  }
+
+  function fitToCanvas() {
+    var cw = canvas.clientWidth, ch = canvas.clientHeight;
+    var sw = clone.getAttribute('width') || clone.viewBox.baseVal.width || 800;
+    var sh = clone.getAttribute('height') || clone.viewBox.baseVal.height || 200;
+    scale = Math.min(cw / sw, ch / sh, 1) * 0.9;
+    tx = (cw - sw * scale) / 2;
+    ty = (ch - sh * scale) / 2;
+    applyTransform();
+  }
+
+  function openModal() {
+    overlay.classList.add('open');
+    requestAnimationFrame(fitToCanvas);
+  }
+  function closeModal() { overlay.classList.remove('open'); }
+
+  document.getElementById('df-open-btn').addEventListener('click', openModal);
+  document.getElementById('df-close-btn').addEventListener('click', closeModal);
+  document.getElementById('df-zoom-in').addEventListener('click', function() {
+    scale = Math.min(scale * 1.25, 8); applyTransform();
+  });
+  document.getElementById('df-zoom-out').addEventListener('click', function() {
+    scale = Math.max(scale / 1.25, 0.1); applyTransform();
+  });
+  document.getElementById('df-zoom-reset').addEventListener('click', fitToCanvas);
+
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) closeModal();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // Mouse wheel zoom
+  canvas.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var rect = canvas.getBoundingClientRect();
+    var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    var factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    var newScale = Math.min(Math.max(scale * factor, 0.1), 8);
+    tx = mx - (mx - tx) * (newScale / scale);
+    ty = my - (my - ty) * (newScale / scale);
+    scale = newScale;
+    applyTransform();
+  }, { passive: false });
+
+  // Drag to pan
+  canvas.addEventListener('mousedown', function(e) {
+    dragging = true; startX = e.clientX; startY = e.clientY;
+    startTx = tx; startTy = ty;
+    canvas.classList.add('grabbing');
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    tx = startTx + (e.clientX - startX);
+    ty = startTy + (e.clientY - startY);
+    applyTransform();
+  });
+  document.addEventListener('mouseup', function() {
+    dragging = false; canvas.classList.remove('grabbing');
+  });
+
+  // Touch support
+  var lastDist = null;
+  canvas.addEventListener('touchstart', function(e) {
+    if (e.touches.length === 1) {
+      dragging = true; startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+      startTx = tx; startTy = ty;
+    }
+  });
+  canvas.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    if (e.touches.length === 1 && dragging) {
+      tx = startTx + (e.touches[0].clientX - startX);
+      ty = startTy + (e.touches[0].clientY - startY);
+      applyTransform();
+    } else if (e.touches.length === 2) {
+      var dx = e.touches[0].clientX - e.touches[1].clientX;
+      var dy = e.touches[0].clientY - e.touches[1].clientY;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      if (lastDist) {
+        var factor = dist / lastDist;
+        scale = Math.min(Math.max(scale * factor, 0.1), 8);
+        applyTransform();
+      }
+      lastDist = dist;
+    }
+  }, { passive: false });
+  canvas.addEventListener('touchend', function() { dragging = false; lastDist = null; });
+})();
+</script>
+"""
+
+
 def generate_workflow_page(wf: dict, project_name: str, output_dir: Path) -> None:
     fname = wf["_filename"]
     wf_id = wf.get("workflow_id", fname)
@@ -649,7 +724,6 @@ def generate_workflow_page(wf: dict, project_name: str, output_dir: Path) -> Non
     feasibility = r.get("auto_conversion_feasibility", "MEDIUM")
     rationale = r.get("rationale", "")
     human_required = r.get("human_intervention_required", False)
-    auto_conv = c.get("auto_conversion", False)
 
     sources = wf.get("sources", [])
     targets = wf.get("targets", [])
@@ -660,7 +734,6 @@ def generate_workflow_page(wf: dict, project_name: str, output_dir: Path) -> Non
     breakdown = c.get("score_breakdown", {})
 
     flag_color = FLAG_COLORS.get(flag, FLAG_COLORS["MEDIUM"])
-    budget_lo, budget_hi = compute_budget_estimate(flag)
 
     # Sources list
     sources_html = ""
@@ -725,10 +798,52 @@ def generate_workflow_page(wf: dict, project_name: str, output_dir: Path) -> Non
             </div>"""
 
     data_flow_svg = _data_flow_svg(data_flow, transformations, sources, targets)
+    has_df = bool(data_flow and data_flow_svg)
     score_table = _score_breakdown_table(breakdown)
     transfo_table = _transfo_table(transformations)
 
     display_name = fname.replace("wf_", "").replace("_", " ").title()
+
+    # Data flow section with expandable modal
+    if has_df:
+        data_flow_section = f"""
+  <!-- Data flow -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+      <h2 style="margin-bottom:0">Data flow</h2>
+      <button id="df-open-btn" class="df-expand-btn">&#x26F6; Agrandir</button>
+    </div>
+    <div class="df-container" onclick="document.getElementById('df-open-btn').click()">
+      {data_flow_svg}
+    </div>
+    <div style="margin-top:0.75rem;display:flex;gap:1.5rem;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:0.4rem"><div style="width:12px;height:12px;background:#dbeafe;border:1.5px solid #2563eb;border-radius:2px"></div><span style="font-size:0.75rem;color:#6b7280">Source</span></div>
+      <div style="display:flex;align-items:center;gap:0.4rem"><div style="width:12px;height:12px;background:#f3f4f6;border:1.5px solid #6b7280;border-radius:2px"></div><span style="font-size:0.75rem;color:#6b7280">Transformation</span></div>
+      <div style="display:flex;align-items:center;gap:0.4rem"><div style="width:12px;height:12px;background:#d1fae5;border:1.5px solid #10b981;border-radius:2px"></div><span style="font-size:0.75rem;color:#6b7280">Cible</span></div>
+    </div>
+  </div>
+
+  <!-- Data flow modal -->
+  <div id="df-modal-overlay" class="df-modal-overlay">
+    <div class="df-modal-inner">
+      <div class="df-modal-header">
+        <span class="df-modal-title">Data flow — {display_name}</span>
+        <div class="df-modal-controls">
+          <button id="df-zoom-out" class="df-btn">−</button>
+          <button id="df-zoom-reset" class="df-btn">⊡ Ajuster</button>
+          <button id="df-zoom-in" class="df-btn">+</button>
+          <button id="df-close-btn" class="df-close-btn" title="Fermer (Échap)">✕</button>
+        </div>
+      </div>
+      <div id="df-modal-canvas" class="df-modal-canvas">
+        <div id="df-svg-wrap" class="df-modal-svg-wrap"></div>
+      </div>
+      <div class="df-hint">Molette pour zoomer · Glisser pour déplacer · Échap ou clic extérieur pour fermer</div>
+    </div>
+  </div>
+  {DATA_FLOW_MODAL_JS}"""
+    else:
+        data_flow_section = ""
 
     html = f"""<!DOCTYPE html>
 <html lang="fr">
@@ -781,10 +896,6 @@ def generate_workflow_page(wf: dict, project_name: str, output_dir: Path) -> Non
         <div style="margin-bottom:0.3rem">{_feasibility_badge(feasibility)}</div>
         <div style="font-size:0.75rem;color:#6b7280">Faisabilité IA</div>
       </div>
-      <div style="text-align:right">
-        <div style="font-size:1.1rem;font-weight:700;color:{flag_color['text']}">{_fmt_eur(budget_lo)} – {_fmt_eur(budget_hi)}</div>
-        <div style="font-size:0.75rem;color:{flag_color['text']};opacity:0.8">Budget estimé avec IA</div>
-      </div>
     </div>
   </div>
 
@@ -814,16 +925,7 @@ def generate_workflow_page(wf: dict, project_name: str, output_dir: Path) -> Non
     </div>
   </div>
 
-  <!-- Data flow -->
-  {f'''<div class="card">
-    <h2>Data flow</h2>
-    <div style="overflow-x:auto;padding:0.5rem 0">{data_flow_svg}</div>
-    <div style="margin-top:0.75rem;display:flex;gap:1.5rem;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:0.4rem"><div style="width:12px;height:12px;background:#dbeafe;border:1.5px solid #2563eb;border-radius:2px"></div><span style="font-size:0.75rem;color:#6b7280">Source</span></div>
-      <div style="display:flex;align-items:center;gap:0.4rem"><div style="width:12px;height:12px;background:#f3f4f6;border:1.5px solid #6b7280;border-radius:2px"></div><span style="font-size:0.75rem;color:#6b7280">Transformation</span></div>
-      <div style="display:flex;align-items:center;gap:0.4rem"><div style="width:12px;height:12px;background:#d1fae5;border:1.5px solid #10b981;border-radius:2px"></div><span style="font-size:0.75rem;color:#6b7280">Cible</span></div>
-    </div>
-  </div>''' if data_flow else ''}
+  {data_flow_section}
 
   <!-- Transformations table -->
   <div class="card" style="padding:0;overflow:hidden">
@@ -833,7 +935,7 @@ def generate_workflow_page(wf: dict, project_name: str, output_dir: Path) -> Non
     <div style="overflow-x:auto">{transfo_table}</div>
   </div>
 
-  <!-- Score breakdown -->
+  <!-- Score breakdown + Session -->
   <div class="grid-2">
     <div class="card">
       <h2>Décomposition du score</h2>
@@ -849,12 +951,6 @@ def generate_workflow_page(wf: dict, project_name: str, output_dir: Path) -> Non
       {f'<div style="margin-bottom:0.75rem"><div class="section-label">Fichier de paramètres</div><span class="tag">{param_file}</span></div>' if param_file else ''}
       {f'<div><div class="section-label">Variables de session</div>{vars_html}</div>' if session.get("variables") else ''}
       {'' if param_file or session.get("variables") else '<span style="color:#9ca3af;font-size:0.8rem">Pas de paramètres détectés</span>'}
-      <hr class="divider">
-      <div>
-        <div class="section-label">Budget estimé avec IA</div>
-        <div style="font-size:1.5rem;font-weight:700;color:#2563eb">{_fmt_eur(budget_lo)} – {_fmt_eur(budget_hi)}</div>
-        <div style="font-size:0.75rem;color:#6b7280;margin-top:0.25rem">Taux d'automatisation estimé : {int(AUTOMATION_RATE.get(flag,0.5)*100)}%</div>
-      </div>
       <hr class="divider">
       <div>
         <div class="section-label">Étapes Phase 2 recommandées</div>
