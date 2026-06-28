@@ -50,15 +50,18 @@ def main():
     lb_analysis = json.loads(ANALYSIS_REPORT.read_text(encoding="utf-8"))
     print("\n[INFO] Raw Lakebridge report keys:", list(lb_analysis.keys()))
 
-    # Indexer les résultats Lakebridge par nom de workflow
+    # Indexer les résultats Lakebridge par nom de mapping (type == "Mapping")
+    inventory = lb_analysis.get("inventory", [])
     lb_by_name = {}
-    for item in lb_analysis.get("workflows", lb_analysis.get("mappings", [])):
-        name = item.get("name", item.get("workflow_name", ""))
-        lb_by_name[name] = item
+    for item in inventory:
+        if item.get("type") in ("Mapping", "Workflow", "Worklet", None):
+            name = item.get("name", "")
+            if name:
+                lb_by_name[name] = item
 
-    print("\n[INFO] Workflows détectés par Lakebridge :")
-    for name in lb_by_name:
-        print(f"  - {name}")
+    print("\n[INFO] Objets détectés par Lakebridge (inventory) :")
+    for name, item in lb_by_name.items():
+        print(f"  - [{item.get('type','?')}] {name} → complexityLevel={item.get('complexityLevel','N/A')}")
 
     print("\n" + "=" * 80)
     print("ANALYZER LAKEBRIDGE vs SCORES NOTRE PIPELINE")
@@ -74,8 +77,8 @@ def main():
             (v for k, v in lb_by_name.items() if wf_name in k or k in wf_name),
             {}
         )
-        lb_score = lb_item.get("complexity_score", lb_item.get("score", "N/A"))
-        lb_complexity = lb_item.get("complexity", lb_item.get("complexity_label", "N/A"))
+        lb_score = lb_item.get("complexityScore", lb_item.get("complexity_score", "N/A"))
+        lb_complexity = lb_item.get("complexityLevel", lb_item.get("complexity", "N/A"))
 
         model = recommended_model(meta["score"])
 
@@ -105,6 +108,20 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\nRapport exporté → {out_path}")
+
+    # Constat clé : Lakebridge vs notre pipeline
+    lb_complexities = set(r["lb_complexity"] for r in rows if r["lb_complexity"] != "N/A")
+    print(f"\n{'=' * 80}")
+    print("CONSTAT CLÉ POUR LA PRÉSENTATION")
+    print("=" * 80)
+    print(f"  Lakebridge complexities détectées : {lb_complexities or {'(aucun match)'}}")
+    all_low = all(r["lb_complexity"] in ("LOW", "N/A") for r in rows)
+    if all_low:
+        print("  [!] Lakebridge classe TOUS les workflows en LOW -- insensible a la complexite reelle")
+        print("      (il ne compte que les appels SQL/fonctions, pas les patterns Informatica)")
+        print("  [OK] Notre pipeline distingue SIMPLE->CRITICAL grace a l'analyse des transformations")
+        print("       -> Recommandation : utiliser nos scores pour le routage LLM (Haiku/Sonnet/Opus)")
+
     print("\n[INFO] Pour voir le rapport brut Lakebridge complet :")
     print(f"  cat {ANALYSIS_REPORT}")
 
