@@ -59,33 +59,52 @@ def _parse_attributes(element: ET.Element) -> dict:
     return attrs
 
 
-def _parse_sources(folder: ET.Element) -> list[dict]:
+def _parse_sources(folder: ET.Element, mapping: ET.Element | None = None) -> list[dict]:
     sources = []
+    # Form 1: explicit <SOURCE> elements in FOLDER
     for src in folder.findall("SOURCE"):
         sources.append({
-            "name":     src.get("NAME"),
+            "name":     src.get("NAME") or src.get("BUSINESSNAME"),
             "owner":    src.get("OWNERNAME"),
             "database": src.get("DBDNAME"),
             "db_type":  src.get("DATABASETYPE"),
             "fields":   _parse_fields(src, "SOURCEFIELD"),
         })
+    # Form 2: infer sources from Source Qualifier inside MAPPING
+    if not sources and mapping is not None:
+        seen = set()
+        for trf in mapping.findall("TRANSFORMATION"):
+            if trf.get("TYPE") != "Source Qualifier":
+                continue
+            attrs = _parse_attributes(trf)
+            table = attrs.get("Source Table", "").strip()
+            if table and table not in seen:
+                seen.add(table)
+                sources.append({
+                    "name":     table,
+                    "owner":    None,
+                    "database": None,
+                    "db_type":  "Oracle",
+                    "fields":   _parse_fields(trf, "TRANSFORMFIELD"),
+                })
     return sources
 
 
-def _parse_targets(folder: ET.Element) -> list[dict]:
+def _parse_targets(folder: ET.Element, mapping: ET.Element | None = None) -> list[dict]:
     targets = []
-    # Form 1: explicit <TARGET> elements (most common)
+    # Form 1: explicit <TARGET> elements in FOLDER
     for tgt in folder.findall("TARGET"):
         targets.append({
-            "name":     tgt.get("NAME"),
+            "name":     tgt.get("NAME") or tgt.get("BUSINESSNAME"),
             "owner":    tgt.get("OWNERNAME"),
             "database": tgt.get("DBDNAME"),
             "db_type":  tgt.get("DATABASETYPE"),
             "fields":   _parse_fields(tgt, "TARGETFIELD"),
         })
-    # Form 2: <TRANSFORMATION TYPE="Target Definition"> (alternative XML structure)
-    if not targets:
-        for trf in folder.findall("TRANSFORMATION"):
+    # Form 2: <TRANSFORMATION TYPE="Target Definition"> inside MAPPING
+    search = mapping if (not targets and mapping is not None) else (folder if not targets else None)
+    if search is not None:
+        for trf in search.findall("TRANSFORMATION"):
             if trf.get("TYPE") == "Target Definition":
                 targets.append({
                     "name":     trf.get("NAME"),
@@ -184,8 +203,8 @@ def parse_xml(xml_path: str) -> dict:
         "mapping_id":       mapping.get("NAME") if mapping is not None else "",
         "folder":           folder.get("NAME"),
         "repository":       repo.get("NAME"),
-        "sources":          _parse_sources(folder),
-        "targets":          _parse_targets(folder),
+        "sources":          _parse_sources(folder, mapping),
+        "targets":          _parse_targets(folder, mapping),
         "transformations":  _parse_transformations(mapping) if mapping else [],
         "connectors":       _parse_connectors(mapping) if mapping else [],
         "workflow":         _parse_workflow(folder),
