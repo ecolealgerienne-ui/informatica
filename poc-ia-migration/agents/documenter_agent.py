@@ -1,13 +1,21 @@
 """
 Agent 3.5 — Documenter Agent
-Input  : output/03_fixed_code/wf_clients_dim_fixed.py
-         output/01_canonical_json/wf_clients_dim.json
-Output : output/03_fixed_code/workflow_explanation.md   (métier/technique)
-         output/03_fixed_code/wf_clients_dim_documented.py  (code annoté)
 
-Steps:
-  1. Call Claude Code → generate business/technical explanation (Markdown)
-  2. Call Claude Code → inject inline comments into fixed code using explanation
+Deux modes :
+
+  Phase 1 (--phase1) — Inventaire & Analyse
+    Input  : output/01_canonical_json/{workflow}.json   (canonical JSON uniquement)
+    Output : output/phase1_docs/{workflow}_functional.md
+    Produit une fiche fonctionnelle métier depuis le XML parsé, sans code généré.
+    Destinée aux équipes fonctionnelles pour valider la compréhension du workflow
+    avant toute migration.
+
+  Phase 2 (défaut) — Migration
+    Input  : output/03_fixed_code/{workflow}_fixed.py
+             output/01_canonical_json/{workflow}.json
+    Output : output/03_fixed_code/workflow_explanation.md
+             output/03_fixed_code/{workflow}_documented.py
+    Produit une documentation technique + code annoté depuis le code migré.
 """
 
 import json
@@ -23,13 +31,70 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-INPUT_CODE_PATH = Path("output/03_fixed_code/wf_clients_dim_fixed.py")
-INPUT_JSON_PATH = Path("output/01_canonical_json/wf_clients_dim.json")
-OUTPUT_DIR      = Path("output/03_fixed_code")
+INPUT_CODE_PATH   = Path("output/03_fixed_code/wf_clients_dim_fixed.py")
+INPUT_JSON_PATH   = Path("output/01_canonical_json/wf_clients_dim.json")
+OUTPUT_DIR        = Path("output/03_fixed_code")
+OUTPUT_DIR_PHASE1 = Path("output/phase1_docs")
 
 
 # ---------------------------------------------------------------------------
-# Prompt 1 — Business/Technical explanation
+# Prompt Phase 1 — Fiche fonctionnelle depuis le canonical JSON (sans code)
+# ---------------------------------------------------------------------------
+
+PHASE1_PROMPT = """You are an expert ETL migration consultant producing a functional specification document.
+
+## CRITICAL OUTPUT RULE
+Respond ONLY with a Markdown document. No preamble, no sign-off. Start directly with the first heading.
+Do NOT reproduce the JSON in your response — it is provided as context only.
+
+## Task
+Produce a functional documentation sheet for this Informatica PowerCenter workflow,
+based ONLY on the canonical JSON analysis of the XML. No code has been generated yet.
+
+The audience is: (1) business analysts who will validate that the workflow was correctly understood,
+(2) project managers who will estimate the migration effort.
+Write the business sections in French, technical annotations in English.
+
+## Canonical JSON (source of truth — do NOT reproduce it)
+{canonical_json}
+
+## Required document structure
+
+# {workflow_id} — Fiche fonctionnelle (Phase 1 — Analyse)
+
+## Résumé exécutif
+<2-3 sentences: what this workflow does in plain business language, what data it produces and for whom>
+
+## Complexité & estimation
+| Dimension | Valeur |
+|---|---|
+| **Score de complexité** | {complexity_score} ({complexity_flag}) |
+| **Estimation migration** | {complexity_days} |
+| **Plateforme recommandée** | {platform} |
+| **Patterns Informatica identifiés** | <list key transformation types found> |
+
+## Sources de données
+<For each source: table/file name, key fields, filter conditions in business language>
+
+## Règles de transformation
+<For each transformation, explain in business language what it does — no code, no pandas>
+
+## Données produites (cible)
+<Target table/file, key output fields, business meaning of each>
+
+## Variables & paramètres
+<Explain $$BATCH_DATE and any mapping variables in plain language>
+
+## Points d'attention migration
+<Bullet list of risks, complex patterns, things a developer must be careful about>
+
+## Checklist de validation (pour l'équipe fonctionnelle)
+<List of business rules the client should verify during UAT — written as yes/no questions>
+"""
+
+
+# ---------------------------------------------------------------------------
+# Prompt 1 — Business/Technical explanation (Phase 2, code-based)
 # ---------------------------------------------------------------------------
 
 EXPLANATION_PROMPT = """You are an expert ETL migration consultant who bridges business and technical teams.
@@ -161,6 +226,43 @@ class DocumenterAgent:
         self.canonical     = canonical
         self.workflow_name = workflow_name
 
+    # ------------------------------------------------------------------
+    # Phase 1 — Fiche fonctionnelle depuis canonical JSON seul
+    # ------------------------------------------------------------------
+
+    def run_phase1(self) -> dict:
+        """Génère une fiche fonctionnelle métier sans code — Phase 1 Analyse."""
+        wc = self.canonical.get("workflow_complexity", {})
+        prompt = PHASE1_PROMPT.format(
+            canonical_json=json.dumps(self.canonical, indent=2, ensure_ascii=False),
+            workflow_id=self.canonical.get("workflow_id", self.workflow_name.upper()),
+            complexity_score=wc.get("score", "N/A"),
+            complexity_flag=wc.get("flag", "N/A"),
+            complexity_days=wc.get("estimated_days", "N/A"),
+            platform=self.canonical.get("platform", "N/A"),
+        )
+        print("[Documenter/Phase1] Generating functional specification from canonical JSON...")
+        doc = call_claude(prompt, max_tokens=3000)
+
+        OUTPUT_DIR_PHASE1.mkdir(parents=True, exist_ok=True)
+        out_path = OUTPUT_DIR_PHASE1 / f"{self.workflow_name}_functional.md"
+        out_path.write_text(doc, encoding="utf-8")
+        print(f"[Documenter/Phase1] Functional doc → {out_path} ({len(doc.splitlines())} lines)")
+
+        return {
+            "phase":            "1",
+            "functional_file":  str(out_path),
+            "lines":            len(doc.splitlines()),
+            "workflow":         self.workflow_name,
+            "complexity_score": wc.get("score"),
+            "complexity_flag":  wc.get("flag"),
+            "timestamp":        datetime.now(timezone.utc).isoformat(),
+        }
+
+    # ------------------------------------------------------------------
+    # Phase 2 — Explanation + annotated code (code-based)
+    # ------------------------------------------------------------------
+
     def generate_explanation(self) -> str:
         prompt = EXPLANATION_PROMPT.format(
             workflow_id=self.canonical.get("workflow_id", self.workflow_name.upper()),
@@ -217,19 +319,41 @@ class DocumenterAgent:
 # ---------------------------------------------------------------------------
 # Standalone run
 # ---------------------------------------------------------------------------
+# Usage:
+#   Phase 1 (fiche fonctionnelle depuis JSON) :
+#     python agents/documenter_agent.py --phase1 output/01_canonical_json/wf_clients_dim.json
+#
+#   Phase 2 (doc technique depuis code) :
+#     python agents/documenter_agent.py output/03_fixed_code/wf_clients_dim_fixed.py \
+#                                       output/01_canonical_json/wf_clients_dim.json
 
 if __name__ == "__main__":
-    code_path = sys.argv[1] if len(sys.argv) > 1 else str(INPUT_CODE_PATH)
-    json_path = sys.argv[2] if len(sys.argv) > 2 else str(INPUT_JSON_PATH)
+    args = sys.argv[1:]
 
-    code      = Path(code_path).read_text(encoding="utf-8")
-    canonical = json.loads(Path(json_path).read_text(encoding="utf-8"))
+    if args and args[0] == "--phase1":
+        # Phase 1 : canonical JSON only
+        json_path = args[1] if len(args) > 1 else str(INPUT_JSON_PATH)
+        canonical = json.loads(Path(json_path).read_text(encoding="utf-8"))
+        wf_name   = Path(json_path).stem
+        agent     = DocumenterAgent(code="", canonical=canonical, workflow_name=wf_name)
+        result    = agent.run_phase1()
+        print(f"\n[Documenter/Phase1] Functional doc : {result['lines']} lines")
+        print(f"[Documenter/Phase1] Complexity     : {result['complexity_flag']} (score={result['complexity_score']})")
+        print(f"\n--- Preview (first 30 lines) ---")
+        preview = Path(result["functional_file"]).read_text(encoding="utf-8")
+        print("\n".join(preview.splitlines()[:30]))
 
-    agent  = DocumenterAgent(code, canonical)
-    result = agent.run()
-
-    print(f"\n[Documenter] Explanation : {result['explanation_lines']} lines")
-    print(f"[Documenter] Annotated   : {result['annotated_lines']} lines")
-    print(f"\n--- Explanation preview (first 30 lines) ---")
-    preview = Path(result["explanation_file"]).read_text(encoding="utf-8")
-    print("\n".join(preview.splitlines()[:30]))
+    else:
+        # Phase 2 : code + canonical JSON
+        code_path = args[0] if len(args) > 0 else str(INPUT_CODE_PATH)
+        json_path = args[1] if len(args) > 1 else str(INPUT_JSON_PATH)
+        code      = Path(code_path).read_text(encoding="utf-8")
+        canonical = json.loads(Path(json_path).read_text(encoding="utf-8"))
+        wf_name   = Path(json_path).stem
+        agent     = DocumenterAgent(code, canonical, workflow_name=wf_name)
+        result    = agent.run()
+        print(f"\n[Documenter] Explanation : {result['explanation_lines']} lines")
+        print(f"[Documenter] Annotated   : {result['annotated_lines']} lines")
+        print(f"\n--- Explanation preview (first 30 lines) ---")
+        preview = Path(result["explanation_file"]).read_text(encoding="utf-8")
+        print("\n".join(preview.splitlines()[:30]))
