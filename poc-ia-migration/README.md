@@ -19,6 +19,7 @@
 9. [Positionnement marché](#9-positionnement-marché)
 10. [Comment exécuter le pipeline](#10-comment-exécuter-le-pipeline)
 11. [Décisions techniques clés](#11-décisions-techniques-clés)
+12. [Roadmap commerciale — 4 phases](#12-roadmap-commerciale--4-phases)
 
 ---
 
@@ -651,6 +652,95 @@ poc-ia-migration/
     ├── 04_data_diff_report/          # Rapports QA HTML + JSON
     └── lakebridge_analysis*.json     # Résultats Lakebridge
 ```
+
+---
+
+## 12. Roadmap commerciale — 4 phases
+
+### Phase 1 — Analyse & Inventaire *(vendable maintenant)*
+
+**Agents** : `parser_agent.py` + `documenter_agent.py --phase1`
+
+**Ce qu'on produit pour chaque workflow XML** :
+- **Canonical JSON** : analyse complète (sources, transformations, cibles, variables, scoring)
+- **Fiche fonctionnelle métier** (`{workflow}_functional.md`) : description en français, règles de transformation, checklist de validation pour l'équipe fonctionnelle, points d'attention migration
+- **Rapport d'inventaire global** : matrice LOW/MEDIUM/HIGH/CRITICAL, estimations en jours, recommandation de priorisation
+
+**Pourquoi inclure la documentation dès la Phase 1** :
+Le Documenter travaille depuis le canonical JSON directement — aucun code généré n'est nécessaire. Les équipes fonctionnelles valident leur workflow *avant* que la migration commence. Cela évite les allers-retours coûteux en Phase 2 et crée une référence documentaire que le client utilise indépendamment de la migration.
+
+**Usage** :
+```bash
+# Analyser un workflow
+python agents/parser_agent.py input/wf_clients_dim.xml
+
+# Produire la fiche fonctionnelle Phase 1
+python agents/documenter_agent.py --phase1 output/01_canonical_json/wf_clients_dim.json
+# → output/phase1_docs/wf_clients_dim_functional.md
+```
+
+**Prérequis techniques** : rien — opérationnel aujourd'hui.  
+**Prix indicatif** : 20 000 – 50 000 € forfait selon taille du parc. Zéro risque pour le client.
+
+---
+
+### Phase 2 — Migration automatisée
+
+**Agents** : `codegen_agent.py` + `fixer_agent.py` + `documenter_agent.py` (mode Phase 2)
+
+**Ce qu'on produit** :
+- Script Python exécutable par workflow
+- Documentation technique + docstrings (depuis le code cette fois)
+- Rapport des corrections Fixer
+
+**Séquence recommandée** : commencer par les workflows LOW/MEDIUM validés en Phase 1, monter en complexité.
+
+**Modèle LLM recommandé** : Opus sur CodeGen + Fixer (le coût LLM ~5-15€ est négligeable face au coût manuel).
+
+**Prérequis techniques à compléter** :
+- Fix SCD2 (wf_accounts_scd2) — en cours
+- Valider wf_transactions_hist (CRITICAL)
+- Parser les `<SESSION>` pour les connexions physiques
+- Parser les Parameter Files (`.prm`)
+
+**Prix indicatif** : forfait par workflow selon complexité (voir section 9).
+
+---
+
+### Phase 3 — Recette & Validation *(co-portée avec le client)*
+
+**Agent** : `qa_agent.py` avec golden data réels du client
+
+**Modèle de responsabilité** :
+- Nous fournissons : QA Agent, rapport data diff HTML, canonical JSON comme référence de la logique XML
+- Le client fournit : ses extractions de données réelles (avant migration), validation fonctionnelle
+
+**Livrable** : rapport QA par workflow (PASS/FAIL/CRASH) + PV de recette exportable pour signature.
+
+**Pourquoi déléguer la recette** : le client connaît ses données et ses règles métier mieux que nous. La séparation est claire — nous prouvons que la logique XML est respectée, il prouve que la logique métier est correcte.
+
+---
+
+### Phase 4 — Mise en production & Orchestration
+
+**Ce qu'on produit** :
+- Manifest d'orchestration (Control-M JCL ou Databricks Workflows config) par workflow
+- Injection des connexions physiques réelles (Oracle, JDBC, S3…)
+- Gestion des Parameter Files DEV / RECETTE / PROD
+- Tests de charge et non-régression sur volumes réels
+
+**Prérequis** : accès au repository Informatica complet + accès à l'infrastructure cible.
+
+---
+
+### Récapitulatif roadmap
+
+| Phase | Agents utilisés | Prérequis | Vendable | Prix indicatif |
+|---|---|---|---|---|
+| 1 — Analyse & Inventaire | Parser + Documenter (--phase1) | Aucun | **Maintenant** | 20 000 – 50 000 € forfait |
+| 2 — Migration | CodeGen + Fixer + Documenter | Fix Sessions, SCD2 | 4 – 8 semaines | Par workflow (complexité) |
+| 3 — Recette | QA Agent + golden data client | Golden data disponibles | Après Phase 2 | Inclus ou forfait séparé |
+| 4 — Production | Manifest + connexions | Accès infra client | Après Phase 3 | Forfait infrastructure |
 
 ---
 
