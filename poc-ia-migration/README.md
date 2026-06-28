@@ -1,8 +1,15 @@
-# POC IA Migration — Documentation Complète
+# Plateforme d'Intelligence de Migration — Documentation Technique
 
-**Projet** : Migration automatique Informatica PowerCenter XML → Python ETL via pipeline multi-agents IA  
+**Projet** : Plateforme de modernisation de workflows ETL legacy pilotée par un modèle canonique  
 **Période** : Juin 2026  
-**Statut** : Phase 1 terminée — 8/9 workflows testés, pipeline opérationnel
+**Statut** : POC Phase 1 terminée — 8/9 workflows testés, pipeline opérationnel
+
+> **Positionnement** : Ce projet n'est pas un "générateur de code Python".
+> C'est une plateforme qui **capture, normalise et exploite la logique métier** de workflows Informatica PowerCenter sous forme d'un modèle canonique — indépendant de la source et de la cible.
+> La génération de code Python n'est que la première capacité construite sur ce modèle.
+> Demain : PySpark, DBT, Airflow, Snowflake, Fabric, audit, impact analysis.
+>
+> **L'actif technologique central n'est pas le pipeline IA. C'est le Canonical JSON.**
 
 ---
 
@@ -21,6 +28,7 @@
 11. [Décisions techniques clés](#11-décisions-techniques-clés)
 12. [Roadmap commerciale — 4 phases](#12-roadmap-commerciale--4-phases)
 13. [RAG et Fine-tuning — Évolution de la base de connaissance](#13-rag-et-fine-tuning--évolution-de-la-base-de-connaissance)
+14. [KPIs et Observabilité](#14-kpis-et-observabilité)
 
 ---
 
@@ -46,13 +54,21 @@ La migration d'un parc Informatica PowerCenter vers Python/Databricks est un tra
 
 ### L'approche
 
-Ce POC démontre qu'un pipeline d'agents IA peut automatiser l'essentiel de la conversion :
+Ce POC démontre qu'un pipeline d'agents IA peut capturer la logique métier d'un workflow Informatica, la normaliser en un modèle canonique, puis générer automatiquement code, documentation et rapport QA :
 
 ```
-XML Informatica  →  [Pipeline 5 agents IA]  →  Script Python + Documentation + Rapport QA
+XML Informatica
+      │
+      ▼
+ Canonical JSON  ←── actif central : logique métier normalisée, auditable, réutilisable
+      │
+      ├──▶ Code Python / PySpark
+      ├──▶ Documentation métier
+      ├──▶ Rapport QA
+      └──▶ [demain] DBT, Airflow, Snowflake, Fabric, audit, impact analysis
 ```
 
-**En 4 à 7 minutes. Pour quelques centimes de LLM.**
+**En 4 à 7 minutes par workflow.** Le coût LLM est négligeable — ce n'est pas l'argument de vente. L'argument est la vitesse, la traçabilité et la réutilisabilité du modèle canonique.
 
 ---
 
@@ -869,4 +885,84 @@ Un RAG vectoriel avec 8 exemples synthétiques n'apporte rien de plus que notre 
 
 ---
 
-*Document généré en Juin 2026 — Pipeline version Phase 1 + Semaines 1-3 d'optimisation*
+---
+
+## 14. KPIs et Observabilité
+
+### KPIs actuels (POC Phase 1 — 8 workflows synthétiques)
+
+Ces métriques sont issues de la campagne de tests sur données synthétiques. Elles seront à recalibrer sur données réelles client.
+
+| KPI | Valeur POC | Cible production |
+|---|---|---|
+| Taux de succès Parser (XML → canonical JSON) | 8/8 = **100%** | > 95% |
+| Taux de succès CodeGen (script exécutable sans crash syntaxe) | 8/8 = **100%** | > 90% |
+| Nombre moyen de cycles Fixer | **1.0** (max observé : 1) | < 1.5 |
+| Taux d'escalade Fixer (ESCALATE après 3 cycles) | **0%** | < 10% |
+| Taux QA PASS (données synthétiques) | 6/8 = **75%**\* | > 80% sur golden data réels |
+| Durée moyenne pipeline complet | **4 – 7 min** | < 10 min |
+| Couverture patterns Informatica validés | **~60%** (LOW → COMPLEX) | > 85% (inclut CRITICAL) |
+
+> \* Les 2 non-PASS sont : 1 FAIL artificiel (BATCH_DATE filtre tout) + 1 CRASH SCD2 (fix en cours). Aucun script ne produit de résultat métier incorrect — les scripts s'exécutent mais sans données de sortie.
+
+### Ce qui manque pour des KPIs crédibles en production
+
+Ces métriques ne peuvent être établies qu'après des tests sur données réelles client :
+
+| Métrique | Pourquoi elle manque | Comment l'obtenir |
+|---|---|---|
+| Taux de correction métier (logique correcte) | Fixtures synthétiques ne valident pas la logique | Golden data fournis par le client |
+| Temps moyen de supervision ingénieur | Non mesuré sur le POC | Mesurer sur 10 workflows réels |
+| Taux d'escalade sur patterns inconnus | POC = patterns connus uniquement | Repository Informatica réel du client |
+| Coût total par workflow (ingénieur inclus) | Coût LLM mesuré, supervision non | À établir lors du premier projet réel |
+
+### Observabilité — ce qui est tracé aujourd'hui
+
+| Information | Disponible | Où |
+|---|---|---|
+| Durée par agent | ✅ | Log stdout pipeline |
+| Nombre de cycles Fixer | ✅ | `fix_report.json` |
+| Sections RAG sélectionnées / réduction tokens | ✅ | Log stdout CodeGen |
+| Score de complexité + breakdown | ✅ | Canonical JSON |
+| Verdict QA + anomalies | ✅ | `data_diff_report.json` + HTML |
+| Coût LLM (tokens) | ❌ | Non implémenté |
+| Latence par appel Claude CLI | ❌ | Non implémenté |
+| Retry / timeout events | ❌ | Non implémenté |
+| Versioning prompts / RAG | ❌ | Non implémenté |
+
+### Roadmap observabilité (Phase 2)
+
+```python
+# Ce qu'il faudrait ajouter dans chaque agent :
+{
+  "agent":          "codegen",
+  "workflow":       "wf_accounts_scd2",
+  "duration_s":     23.6,
+  "tokens_in":      8608,
+  "tokens_out":     2341,
+  "rag_reduction":  "39.7%",
+  "model":          "claude-sonnet-4-6",
+  "cycles":         1,
+  "status":         "OK",
+  "prompt_version": "codegen-v3",
+  "rag_version":    "2026.06"
+}
+```
+
+Ce log structuré par agent permettrait de construire un tableau de bord coût/qualité sur l'ensemble du parc migré.
+
+### Versioning — à implémenter
+
+Aujourd'hui les prompts, templates RAG et le schéma canonical JSON ne sont pas versionnés explicitement. En production, un changement de prompt peut modifier le comportement sur tous les workflows. Il faudra :
+
+| Artefact | Version actuelle | À faire |
+|---|---|---|
+| Schéma Canonical JSON | V1 (implicite) | Tag explicite dans le JSON |
+| Prompts CodeGen / Fixer | V1 (implicite) | Versionner dans le nom de fichier ou header |
+| RAG Base (templates + map) | 2026.06 (implicite) | Tag de version dans chaque fichier |
+| Pipeline orchestrateur | V1 (implicite) | Numéro de version en header |
+
+---
+
+*Document technique — POC Phase 1 — Juin 2026*
+*Pour le document d'architecture (une page) : voir `ARCHITECTURE.md`*
