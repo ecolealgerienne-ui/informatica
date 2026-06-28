@@ -20,6 +20,7 @@
 10. [Comment exécuter le pipeline](#10-comment-exécuter-le-pipeline)
 11. [Décisions techniques clés](#11-décisions-techniques-clés)
 12. [Roadmap commerciale — 4 phases](#12-roadmap-commerciale--4-phases)
+13. [RAG et Fine-tuning — Évolution de la base de connaissance](#13-rag-et-fine-tuning--évolution-de-la-base-de-connaissance)
 
 ---
 
@@ -741,6 +742,130 @@ python agents/documenter_agent.py --phase1 output/01_canonical_json/wf_clients_d
 | 2 — Migration | CodeGen + Fixer + Documenter | Fix Sessions, SCD2 | 4 – 8 semaines | Par workflow (complexité) |
 | 3 — Recette | QA Agent + golden data client | Golden data disponibles | Après Phase 2 | Inclus ou forfait séparé |
 | 4 — Production | Manifest + connexions | Accès infra client | Après Phase 3 | Forfait infrastructure |
+
+---
+
+---
+
+## 13. RAG et Fine-tuning — Évolution de la base de connaissance
+
+### Ce que fait notre RAG aujourd'hui (injection statique)
+
+Notre RAG actuel n'est pas un RAG au sens classique. C'est une **injection statique** de documents de référence dans chaque prompt :
+
+```
+Chaque appel CodeGen :
+  prompt = system_prompt
+         + transformation_map.json  (complet ou filtré)
+         + python_templates.md      (complet ou filtré)
+         + canonical JSON du workflow
+```
+
+C'est fonctionnel sur 8 workflows — mais c'est lourd en tokens et peu scalable sur une grande base de connaissance.
+
+**Ce que contient notre RAG Base** :
+
+| Fichier | Contenu | Injecté dans |
+|---|---|---|
+| `transformation_map.json` | Dictionnaire Informatica → pandas/numpy | CodeGen, Fixer |
+| `python_templates.md` | Patterns de code obligatoires (batch structure, SCD2, Normalizer…) | CodeGen, Fixer |
+| `complexity_matrix.json` | Grille de scoring déterministe | Parser |
+
+L'optimisation `select_rag_sections()` (Semaine 2) filtre manuellement les sections pertinentes selon les transformations présentes dans le workflow. C'est du RAG sélectif codé en dur — un premier pas vers un vrai RAG.
+
+---
+
+### Comment fonctionne un vrai RAG
+
+Au lieu d'injecter toute la base, on n'injecte que ce qui est **sémantiquement proche** du besoin courant :
+
+```
+Base de connaissance (N documents)
+        │
+        ▼  indexation (une fois)
+┌─────────────────────┐
+│  Base vectorielle   │  chaque document → embedding (vecteur numérique)
+│  (Chroma, pgvector) │  représente le "sens" du document
+└─────────────────────┘
+        │
+        │  à chaque appel agent :
+        ▼
+  Contexte du workflow (canonical JSON)
+        │
+        ▼  recherche sémantique
+  "quels documents ressemblent le plus à ce workflow ?"
+        │
+        ▼
+  Top 3-5 documents extraits automatiquement
+        │
+        ▼
+  prompt = contexte + ces 3-5 documents seulement
+```
+
+**Exemple sur notre POC** : un workflow avec SCD2 → recherche "SCD Type 2 Informatica migration pandas" → seul le template SCD2 est injecté. Les templates Normalizer, DECODE, Unconnected LKP restent dans la base, non injectés.
+
+---
+
+### Le RAG dans un environnement multi-agents
+
+Dans notre architecture 5 agents, le RAG devient une **mémoire partagée** que chaque agent interroge selon son besoin spécifique :
+
+```
+                ┌─────────────────────────────┐
+                │      Base RAG partagée       │
+                │  - Patterns Informatica      │
+                │  - Migrations passées        │
+                │  - Bugs connus + fixes       │
+                │  - Templates validés         │
+                │  - Escalades résolues        │
+                └──────────────┬──────────────┘
+                               │
+          ┌────────────────────┼────────────────────┐
+          ▼                    ▼                    ▼
+     Parser Agent         CodeGen Agent        Fixer Agent
+  "ce pattern XML      "comment coder       "ce bug a-t-il
+   ressemble à quoi ?"  un SCD2 ?"           déjà été vu ?"
+```
+
+| Agent | Ce qu'il interroge | Résultat attendu |
+|---|---|---|
+| Parser | "Ce type de transformation XML, c'est quoi ?" | Identification correcte du pattern |
+| CodeGen | "Comment implémenter ce type de transformation ?" | Template de code précis et validé |
+| Fixer | "Ce bug a-t-il déjà été rencontré et corrigé ?" | Fix validé depuis une migration passée |
+
+**La vraie puissance** : le RAG s'enrichit au fil des migrations. Chaque workflow validé par un humain → nouvelles entrées → les agents suivants bénéficient de cette expérience accumulée. C'est ce qui transforme un système de 8 workflows en un système qui s'améliore sur 500 migrations réelles.
+
+---
+
+### Fine-tuning — faisable, mais pas maintenant
+
+Un modèle fine-tuné "Informatica → Python" connaîtrait nativement tous les patterns, sans avoir besoin de les injecter dans chaque prompt. Résultat : prompts courts, output plus cohérent, moins de cycles Fixer.
+
+**Ce qu'il faut pour fine-tuner** :
+
+| Besoin | Minimum requis | Situation actuelle |
+|---|---|---|
+| Paires d'entraînement (XML → Python validé) | 50 – 200 | **8 workflows synthétiques** |
+| Validation humaine de chaque exemple | 100% | Partielle |
+| Diversité des patterns Informatica | Large | ~60% des patterns courants |
+| Données réelles client | Fortement recommandé | **Zéro** |
+
+**Contrainte technique** : Claude (Anthropic) ne propose pas de fine-tuning en accès public. Les options disponibles aujourd'hui : OpenAI (GPT-4o mini), Mistral, ou modèles open-source (Llama 3, Qwen) en self-hosted. Fine-tuner = changer de modèle de base, avec un risque sur la qualité de raisonnement.
+
+---
+
+### Trajectoire recommandée
+
+| Étape | Quand | Action |
+|---|---|---|
+| **Maintenant** | 8 workflows synthétiques | Injection statique sélective — suffisant, simple à maintenir |
+| **Court terme** | Après 20-30 migrations réelles | Few-shot examples dans le prompt : les meilleures migrations validées injectées comme exemples concrets |
+| **Moyen terme** | Après 50+ migrations réelles | Base vectorielle (Chroma ou pgvector) + recherche sémantique automatique |
+| **Long terme** | Après 200+ migrations validées | Fine-tuning d'un modèle open-source pour le CodeGen — garder Claude/Opus pour le Fixer (raisonnement complexe) |
+
+**Priorité immédiate** : enrichir le RAG Base existant à chaque nouveau client, pas construire une infrastructure vectorielle vide. `escalate_history.json` est déjà prévu pour tracer les cas escaladés — chaque escalade résolue doit devenir une nouvelle règle statique ou un exemple few-shot.
+
+Un RAG vectoriel avec 8 exemples synthétiques n'apporte rien de plus que notre injection statique actuelle. Le contenu prime sur l'infrastructure.
 
 ---
 
