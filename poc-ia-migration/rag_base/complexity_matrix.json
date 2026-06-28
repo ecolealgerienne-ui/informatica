@@ -1,143 +1,222 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "description": "Grille de scoring de complexité pour la migration Informatica PowerCenter → Python/PySpark",
+  "calibration": "Recalibrée Juin 2026 sur la base des standards industriels (IEEE, Lakebridge, SI factories, DAMA). Principe : scorer ce qui résiste à l'automatisation, pas ce qui est simplement présent.",
+  "sources": [
+    "IEEE Forward Stepwise Regression ETL Effort (ieeexplore.ieee.org/document/7389209)",
+    "Databricks Lakebridge 4-tier scale (databrickslabs.github.io/lakebridge)",
+    "SI Factory benchmarks (TCS CDIF, Capgemini IDMC Framework, Accenture)",
+    "DAMA-DMBOK 3.0 — business rules as complexity drivers",
+    "COMPLEXITY_STANDARDS.md — document de référence complet"
+  ],
+
+  "scoring_philosophy": {
+    "principle": "La complexité est dans la NATURE des transformations, pas leur nombre.",
+    "sql_override": "Un SQL override simple (WHERE, TO_DATE, ROWNUM) est un accélérateur de migration — le SQL est réutilisable directement. Score 0.",
+    "transformation_count": "Supprimé comme modificateur global. 10 filtres simples ≠ 3 SCD2.",
+    "java_custom": "Java Transformation et Custom Transformation déclenchent CRITICAL automatiquement, indépendamment du score total.",
+    "critical_target": "CRITICAL ne doit pas dépasser 25% d'un parc typique (benchmark Accenture/TCS)."
+  },
 
   "transformation_scores": {
     "Source Qualifier": {
       "base_score": 1,
+      "_note": "Base 1 car représente une connexion source. SQL simple est trivial en Python (read_sql).",
       "modifiers": {
-        "has_sql_override":            { "score": 2, "reason": "SQL Oracle à réécrire" },
-        "has_oracle_rownum":           { "score": 1, "reason": "ROWNUM → pandas head()" },
-        "has_oracle_to_date":          { "score": 1, "reason": "TO_DATE → pd.to_datetime()" },
-        "has_subquery":                { "score": 3, "reason": "Sous-requête complexe" },
-        "has_union":                   { "score": 3, "reason": "UNION/UNION ALL dans SQL" },
-        "has_analytical_functions":    { "score": 4, "reason": "ROW_NUMBER/RANK/LAG/LEAD" },
-        "select_distinct":             { "score": 1, "reason": "DISTINCT → drop_duplicates()" }
+        "has_subquery":             { "score": 3, "reason": "Sous-requête imbriquée — logique relationnelle complexe à vectoriser" },
+        "has_union":                { "score": 2, "reason": "UNION/UNION ALL → pd.concat() mais schéma à réconcilier" },
+        "has_analytical_functions": { "score": 4, "reason": "ROW_NUMBER/RANK/LAG/LEAD — pas d'équivalent direct simple en pandas" },
+        "has_sql_override":         { "score": 0, "reason": "SQL réutilisable directement via read_sql() — accélérateur, pas frein" },
+        "has_oracle_rownum":        { "score": 0, "reason": "ROWNUM → .head(n) — one-liner trivial" },
+        "has_oracle_to_date":       { "score": 0, "reason": "TO_DATE → pd.to_datetime() — one-liner trivial" },
+        "select_distinct":          { "score": 0, "reason": "DISTINCT → drop_duplicates() — trivial" }
       }
     },
+
     "Lookup Procedure": {
       "base_score": 1,
+      "_note": "Lookup connecté statique = merge() standard. La complexité vient du type de cache et du mode match.",
       "modifiers": {
-        "lookup_connected_static":     { "score": 0, "reason": "Simple merge — pattern standard" },
-        "lookup_connected_dynamic":    { "score": 3, "reason": "Cache dynamique — logique complexe" },
-        "lookup_unconnected":          { "score": 2, "reason": "Appel explicite — pattern différent" },
-        "multiple_match_error":        { "score": 2, "reason": "Politique d'erreur à implémenter" },
-        "multiple_match_last_row":     { "score": 1, "reason": "sort + tail() requis" },
-        "cache_persistent":            { "score": 2, "reason": "Gestion de cache à simuler" },
-        "cross_db_lookup":             { "score": 3, "reason": "Sources hétérogènes" }
+        "lookup_connected_static":  { "score": 0, "reason": "merge() standard — pattern bien documenté" },
+        "lookup_connected_dynamic": { "score": 3, "reason": "Cache dynamique — logique de mise à jour en cours de traitement" },
+        "lookup_unconnected":       { "score": 2, "reason": "Appel syntaxique :LKP. différent des merges — pattern spécifique" },
+        "multiple_match_error":     { "score": 1, "reason": "Politique d'erreur à implémenter explicitement" },
+        "multiple_match_last_row":  { "score": 1, "reason": "sort() + tail() requis" },
+        "cache_persistent":         { "score": 1, "reason": "Gestion de cache externe à simuler" },
+        "cross_db_lookup":          { "score": 2, "reason": "Sources hétérogènes — connexions multiples" }
       }
     },
+
     "Expression": {
-      "base_score": 1,
+      "base_score": 0,
+      "_note": "Base 0 : une Expression simple est de la vectorisation pandas standard. La complexité vient du contenu.",
       "modifiers": {
-        "computed_fields_1_3":         { "score": 0, "reason": "1-3 champs — standard" },
-        "computed_fields_4_8":         { "score": 1, "reason": "4-8 champs — modéré" },
-        "computed_fields_9_plus":      { "score": 2, "reason": "9+ champs — volumétrie" },
-        "has_datediff":                { "score": 1, "reason": "DATEDIFF → formule vectorisée" },
-        "has_iif_nested":              { "score": 2, "reason": "IIF imbriqués → np.where chaîné" },
-        "has_decode_complex":          { "score": 2, "reason": "DECODE multi-valeurs → map()" },
-        "has_custom_function":         { "score": 4, "reason": "Fonction custom — non mappable" },
-        "has_java_expression":         { "score": 5, "reason": "Java embarqué — CRITICAL" },
-        "has_string_aggregation":      { "score": 2, "reason": "Agrégation string → groupby" }
+        "computed_fields_1_3":    { "score": 0, "reason": "1-3 champs — vectorisation de base" },
+        "computed_fields_4_8":    { "score": 0, "reason": "4-8 champs — toujours vectorisable, pas de complexité structurelle" },
+        "computed_fields_9_plus": { "score": 1, "reason": "9+ champs — risque de lisibilité et maintenance" },
+        "has_datediff":           { "score": 0, "reason": "(date1-date2).days — trivial en Python" },
+        "has_iif_nested":         { "score": 1, "reason": "IIF imbriqués → np.where chaîné — lisible mais à valider" },
+        "has_decode_complex":     { "score": 1, "reason": "DECODE multi-valeurs → .map() ou pd.cut() — pattern standard" },
+        "has_custom_function":    { "score": 4, "reason": "Fonction custom Informatica — non mappable automatiquement" },
+        "has_java_expression":    { "score": 5, "reason": "Java embarqué — CRITICAL, réécriture complète" },
+        "has_string_aggregation": { "score": 1, "reason": "STRING_AGG → groupby().apply() — non trivial" }
       }
     },
+
     "Filter": {
       "base_score": 0,
+      "_note": "Base 0 : un filtre est un masque booléen pandas. Complexité uniquement si sous-requête.",
       "modifiers": {
-        "simple_condition":            { "score": 0, "reason": "Condition simple — masque booléen" },
-        "compound_condition":          { "score": 1, "reason": "AND/OR multiples" },
-        "subquery_condition":          { "score": 3, "reason": "Sous-requête dans filtre" }
+        "simple_condition":   { "score": 0, "reason": "df[condition] — trivial" },
+        "compound_condition": { "score": 0, "reason": "& et | en pandas — standard" },
+        "subquery_condition": { "score": 2, "reason": "Sous-requête dans le filtre — semi-jointure à réécrire" }
       }
     },
+
     "Aggregator": {
-      "base_score": 2,
-      "modifiers": {
-        "simple_groupby":              { "score": 0, "reason": "GROUP BY standard → groupby()" },
-        "has_sorted_input":            { "score": 1, "reason": "Sorted input requis" },
-        "has_running_total":           { "score": 2, "reason": "Running total → cumsum()" },
-        "has_median":                  { "score": 1, "reason": "MEDIAN → quantile(0.5)" }
-      }
-    },
-    "Joiner": {
-      "base_score": 2,
-      "modifiers": {
-        "inner_join":                  { "score": 0, "reason": "INNER JOIN → merge(how='inner')" },
-        "outer_join":                  { "score": 1, "reason": "OUTER JOIN → merge(how='outer')" },
-        "not_equal_join":              { "score": 3, "reason": "Jointure inégalité — complexe" },
-        "cross_join":                  { "score": 3, "reason": "Produit cartésien — volumétrie" },
-        "heterogeneous_sources":       { "score": 2, "reason": "Sources de types différents" }
-      }
-    },
-    "Sorter": {
       "base_score": 1,
+      "_note": "groupby() est standard. La complexité vient des patterns non triviaux (running total, médiane).",
       "modifiers": {
-        "simple_sort":                 { "score": 0, "reason": "sort_values() standard" },
-        "case_insensitive":            { "score": 1, "reason": "Sort insensible à la casse" },
-        "distinct":                    { "score": 1, "reason": "Sort + distinct" }
+        "simple_groupby":    { "score": 0, "reason": "groupby().agg() — pattern de base" },
+        "has_sorted_input":  { "score": 1, "reason": "Tri préalable requis — sort_values() avant groupby" },
+        "has_running_total": { "score": 2, "reason": "cumsum() avec partitionnement — logique non triviale" },
+        "has_median":        { "score": 1, "reason": "quantile(0.5) — mineur mais à ne pas oublier" }
       }
     },
+
+    "Joiner": {
+      "base_score": 1,
+      "_note": "merge() est standard. La complexité vient du type de jointure et des sources.",
+      "modifiers": {
+        "inner_join":            { "score": 0, "reason": "merge(how='inner') — trivial" },
+        "outer_join":            { "score": 1, "reason": "merge(how='outer') — gestion des NaN à prévoir" },
+        "not_equal_join":        { "score": 3, "reason": "Jointure inégalité — cross join + filtre, coûteux" },
+        "cross_join":            { "score": 2, "reason": "Produit cartésien — volumétrie à surveiller" },
+        "heterogeneous_sources": { "score": 2, "reason": "Sources de types différents — connexions multiples à gérer" }
+      }
+    },
+
+    "Sorter": {
+      "base_score": 0,
+      "_note": "sort_values() est une ligne. Complexité uniquement si cas spéciaux.",
+      "modifiers": {
+        "simple_sort":      { "score": 0, "reason": "sort_values() — trivial" },
+        "case_insensitive": { "score": 1, "reason": "str.lower() avant tri — mineur" },
+        "distinct":         { "score": 0, "reason": "drop_duplicates() après tri — trivial" }
+      }
+    },
+
     "Router": {
-      "base_score": 2,
+      "base_score": 1,
+      "_note": "np.where() ou pd.cut() pour 1-3 groupes. Complexité si nombreux groupes ou logique dense.",
       "modifiers": {
-        "groups_1_3":                  { "score": 0, "reason": "1-3 groupes — np.where" },
-        "groups_4_plus":               { "score": 2, "reason": "4+ groupes — logique conditionnelle" }
+        "groups_1_3":  { "score": 0, "reason": "np.where() ou conditions simples — standard" },
+        "groups_4_plus": { "score": 2, "reason": "4+ groupes — logique conditionnelle dense, risque d'oubli" }
       }
     },
+
     "Sequence Generator": {
       "base_score": 1,
+      "_note": "Simulation par compteur ou UUID selon le contexte.",
       "modifiers": {}
     },
+
     "Java Transformation": {
       "base_score": 8,
-      "modifiers": {
-        "any":                         { "score": 0, "reason": "CRITICAL — réécriture complète obligatoire" }
-      }
+      "_note": "CRITICAL automatique — réécriture complète obligatoire. Aucun mapping possible.",
+      "modifiers": {}
     },
+
     "Custom Transformation": {
       "base_score": 6,
+      "_note": "CRITICAL automatique — logique propriétaire inconnue.",
       "modifiers": {}
     },
+
     "Normalizer": {
       "base_score": 3,
+      "_note": "Dépivotage — pd.melt() ou stack(). Pattern non trivial, à tester sur volumétrie.",
       "modifiers": {}
     },
+
     "XML Source Qualifier": {
-      "base_score": 3,
+      "base_score": 2,
+      "_note": "Parsing XML en Python (lxml/ElementTree) — standard mais à implémenter.",
       "modifiers": {}
     },
+
+    "Update Strategy": {
+      "base_score": 2,
+      "_note": "Logique INSERT/UPDATE/DELETE explicite — upsert pandas ou SQL MERGE. Non trivial.",
+      "modifiers": {
+        "has_delete_strategy": { "score": 1, "reason": "Suppression logique ou physique à gérer explicitement" }
+      }
+    },
+
     "Web Services": {
-      "base_score": 5,
+      "base_score": 4,
+      "_note": "Appel HTTP REST/SOAP — requests/zeep, gestion erreurs, retry. Hors scope pandas standard.",
       "modifiers": {}
     }
   },
 
   "global_modifiers": {
-    "has_parameter_file":              { "score": 1, "reason": "Variables de session à injecter" },
-    "transformation_count_5_10":      { "score": 1, "reason": "Workflow de taille moyenne" },
-    "transformation_count_11_plus":   { "score": 2, "reason": "Workflow complexe" },
-    "has_multiple_targets":           { "score": 2, "reason": "Cibles multiples — logique de routage" },
-    "has_error_handling":             { "score": 1, "reason": "Gestion d'erreur custom" },
-    "has_transaction_control":        { "score": 3, "reason": "Contrôle transactionnel" }
+    "_note": "Modificateurs réduits au strict nécessaire. Le nombre de transformations n'est plus un critère.",
+    "has_multiple_targets":     { "score": 2, "reason": "Cibles multiples — logique de routage et transactions à gérer" },
+    "has_transaction_control":  { "score": 3, "reason": "Contrôle transactionnel explicite — commit/rollback en Python" },
+    "has_error_handling":       { "score": 1, "reason": "Gestion d'erreur custom — try/except structuré à implémenter" }
+  },
+
+  "removed_modifiers": {
+    "_explanation": "Ces modificateurs ont été supprimés car ils gonflaient les scores sans refléter une complexité réelle de migration.",
+    "has_parameter_file":          "Variable d'environnement en Python — os.getenv(). Score 0.",
+    "transformation_count_5_10":   "Nombre ≠ complexité. 10 filtres simples ≠ 3 SCD2.",
+    "transformation_count_11_plus": "Même raison.",
+    "has_oracle_to_date":          "pd.to_datetime() — one-liner.",
+    "has_oracle_rownum":           "df.head(n) — one-liner.",
+    "has_sql_override":            "SQL réutilisable directement — accélérateur.",
+    "computed_fields_4_8":         "Vectorisation standard quelque soit le nombre.",
+    "select_distinct":             "drop_duplicates() — trivial."
   },
 
   "thresholds": {
-    "LOW":      { "min": 0,  "max": 3,  "label": "LOW",      "migration_days": "0.5",   "auto_conversion": true  },
-    "MEDIUM":   { "min": 4,  "max": 8,  "label": "MEDIUM",   "migration_days": "1-2",   "auto_conversion": true  },
-    "HIGH":     { "min": 9,  "max": 14, "label": "HIGH",     "migration_days": "3-5",   "auto_conversion": false },
-    "CRITICAL": { "min": 15, "max": 99, "label": "CRITICAL", "migration_days": ">5",    "auto_conversion": false }
+    "LOW":      { "min": 0,  "max": 3,  "label": "LOW",      "migration_days": "0.5",   "auto_conversion": true,  "automation_rate": "85-95%" },
+    "MEDIUM":   { "min": 4,  "max": 8,  "label": "MEDIUM",   "migration_days": "1-2",   "auto_conversion": true,  "automation_rate": "65-80%" },
+    "HIGH":     { "min": 9,  "max": 14, "label": "HIGH",     "migration_days": "3-5",   "auto_conversion": false, "automation_rate": "40-60%" },
+    "CRITICAL": { "min": 15, "max": 99, "label": "CRITICAL", "migration_days": ">5",    "auto_conversion": false, "automation_rate": "10-30%" }
   },
 
   "routing_rules": {
-    "python":     "Score total <= 8 ET pas de Java ET pas de Custom ET volume < 5M lignes estimé",
-    "pyspark":    "Score total 9-14 OU volume >= 5M lignes OU Aggregator/Joiner complexe",
+    "python":     "Score total <= 8 ET pas de Java ET pas de Custom",
+    "pyspark":    "Score total 9-14 OU Aggregator complexe OU Joiner hétérogène",
     "databricks": "Score total >= 15 OU Java Transformation OU Custom Transformation",
-    "human":      "Score total CRITICAL OU has_java_transformation=true OU has_custom_function=true"
+    "human":      "Java Transformation OU Custom Transformation OU score >= 15"
   },
 
-  "per_transformation_flag_logic": {
-    "LOW":      "score_transformation <= 2",
-    "MEDIUM":   "score_transformation 3-5",
-    "HIGH":     "score_transformation 6-8",
-    "CRITICAL": "score_transformation >= 9 OU Java OU Custom"
+  "automatic_critical_flags": {
+    "_note": "Ces types déclenchent CRITICAL indépendamment du score calculé.",
+    "Java Transformation": "Réécriture complète — aucun mapping automatique possible",
+    "Custom Transformation": "Logique propriétaire inconnue — intervention experte obligatoire"
+  },
+
+  "expected_park_distribution": {
+    "_source": "Benchmark SI factories (Accenture, TCS, Capgemini) — parc Informatica typique 200-500 workflows",
+    "LOW":      "30-40%",
+    "MEDIUM":   "30-35%",
+    "HIGH":     "15-25%",
+    "CRITICAL": "5-15%"
+  },
+
+  "validation": {
+    "_note": "Scores cibles sur les 9 workflows de test pour valider la calibration",
+    "wf_smoke_test":       { "target": "LOW",      "target_score": "1-3"  },
+    "wf_clients_dim":      { "target": "LOW",      "target_score": "2-4"  },
+    "wf_products_dim":     { "target": "LOW",      "target_score": "3-5"  },
+    "wf_orders_fact":      { "target": "MEDIUM",   "target_score": "5-8"  },
+    "wf_sales_monthly":    { "target": "MEDIUM",   "target_score": "4-7"  },
+    "wf_unconnected_lkp":  { "target": "HIGH",     "target_score": "9-12" },
+    "wf_accounts_scd2":    { "target": "HIGH",     "target_score": "10-13"},
+    "wf_xml_normalizer":   { "target": "HIGH",     "target_score": "9-11" },
+    "wf_transactions_hist":{ "target": "CRITICAL", "target_score": "15-20"}
   }
 }
